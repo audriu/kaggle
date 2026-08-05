@@ -61,6 +61,7 @@ scripts/
   setup_data.py        # kaggle competitions download → data/
   package.py           # build dist/submission.tar.gz
   self_play.py         # local match via kaggle-environments (needs cg/)
+  submit.py            # kaggle competitions submit dist/submission.tar.gz
 data/                  # competition zip + sample_submission (gitignored)
 ```
 
@@ -85,8 +86,10 @@ Without `~/.kaggle/kaggle.json`, you can manually download **Data** from the com
 python scripts/package.py
 python scripts/self_play.py --games 5
 
-# Upload dist/submission.tar.gz on Kaggle (Submit Agent), or rebuild inside a Notebook.
+# Upload dist/submission.tar.gz (CLI or Kaggle Submit Agent UI)
+python scripts/submit.py -m "random agent + lucario deck"
 ```
+
 
 ## Suggested improvement path
 
