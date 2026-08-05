@@ -19,6 +19,22 @@ Build an AI **agent** that plays Pokémon TCG under the official **CABT** simula
 
 **Status today (5 Aug 2026):** ~11 days left on Simulation submissions.
 
+## Current agent
+
+`agent/main.py` is a **Mega Lucario ex** policy (same deck as the official TPC sample):
+
+1. **Rule-based scoring** — attack planning (Aura Jab / Mega Brave / Hariyama / Solrock), energy attach, evolve, Boss/Switch lines, setup active/bench, search/discard contexts.
+2. **Damage fidelity** — Fighting weakness/resistance, Premium Power Pro (+30), Gravity Mountain (−30 HP on Stage 2), Cosmic Beam ignoring W/R.
+3. **Shallow look-ahead** — on MAIN (turn ≥ 2), `search_begin` / `search_step` may override the heuristic when clearly better.
+4. **Kaggle-safe load** — works under `exec()` without `__file__` (validated by `package.py` / `submit.py`).
+
+Local self-play (alternating seats, same deck):
+
+| Matchup | Result |
+| --- | --- |
+| Ours vs random | ~39–1 / 40 |
+| Ours vs official Lucario sample (`baselines/official_lucario.py`) | ~27–23 / 50 |
+
 ## How an agent works
 
 ```text
@@ -28,18 +44,6 @@ engine → agent(obs_dict) → list[int]
 1. If `obs_dict["select"] is None` → return your **60 card IDs** (deck).
 2. Otherwise return indices into `obs_dict["select"]["option"]` (length between `minCount` and `maxCount`).
 3. Contexts include setup active, main phase (play / attach / evolve / ability / retreat / attack / end), switches, searches, etc.
-
-Official random baseline:
-
-```python
-import random
-
-def agent(obs_dict: dict) -> list[int]:
-    return random.sample(
-        list(range(len(obs_dict["select"]["option"]))),
-        obs_dict["select"]["maxCount"],
-    )
-```
 
 Submission archive layout (files at archive **root**, not nested):
 
@@ -54,8 +58,10 @@ submission.tar.gz
 
 ```text
 agent/                 # what you edit and package
-  main.py              # random agent (correct CABT API)
-  deck.csv             # Mega Lucario ex starter (from official examples)
+  main.py              # Lucario heuristic + CABT search
+  deck.csv             # Mega Lucario ex (official sample list)
+baselines/
+  official_lucario.py  # TPC rule-based sample (eval opponent)
 decks/                 # extra deck lists
 scripts/
   setup_data.py        # kaggle competitions download → data/
@@ -89,18 +95,17 @@ python scripts/self_play.py --games 5
 python scripts/validate_submission.py   # optional standalone check
 
 # Upload dist/submission.tar.gz (CLI or Kaggle Submit Agent UI)
-python scripts/submit.py -m "random agent + lucario deck"
+python scripts/submit.py -m "Mega Lucario heuristic + shallow CABT search"
 ```
 
 `package.py` / `submit.py` load the agent via `exec()` **without** `__file__` (same as Kaggle) so deck-path bugs fail locally instead of on the validation episode.
 
-
 ## Suggested improvement path
 
-1. **Valid submission** — random agent + legal 60-card deck (this repo’s starting point).
-2. **Rule-based policy** — score options by context (official Mega Lucario / Mega Abomasnow notebooks on the Code tab).
+1. ~~Valid submission~~ / ~~rule-based Lucario + search~~ — current `agent/main.py`.
+2. **Eval loop** — pit against `baselines/official_lucario.py` and ladder-style decks before burning daily submits.
 3. **Deck craft** — tune archetype vs meta; keep deck and policy paired.
-4. **Search / RL** — CABT `search_begin` / `search_step` for look-ahead; self-play eval before burning daily submits.
+4. **Deeper search / beliefs** — better hidden-card guesses, longer rollouts under the 10‑minute clock.
 5. **Strategy writeup** — needed for prize track; document deck thesis + decision logic + ladder evidence.
 
 ## Notes
@@ -108,3 +113,4 @@ python scripts/submit.py -m "random agent + lucario deck"
 - Competition card CSVs / `cg/` binaries are **Competition Use only** — keep them under `data/` (gitignored).
 - The old root `sim.py` used a non-CABT observation shape; the real entrypoint is `agent/main.py`.
 - Viewer / local UI option: [cabt-viewer](https://github.com/charlielockyer-rice/cabt-viewer) (still needs your local `sample_submission`).
+- Official samples: [Mega Lucario notebook](https://www.kaggle.com/code/kiyotah/a-sample-rule-based-agent-mega-lucario-ex-deck), CABT docs above.
