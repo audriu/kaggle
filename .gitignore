@@ -5,6 +5,7 @@ venv/
 # Competition data (Kaggle Competition Use only — do not redistribute)
 data/
 !data/.gitkeep
+!**/data/.gitkeep
 
 # Built submissions
 dist/
