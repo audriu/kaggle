@@ -12,21 +12,25 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS = Path(__file__).resolve().parent
 
 
 def _load_agent(path: Path):
-    spec = importlib.util.spec_from_file_location("submission_agent", path)
+    """Load via Kaggle-style exec (no __file__) so local runs catch submit bugs."""
+    spec = importlib.util.spec_from_file_location(
+        "validate_submission", SCRIPTS / "validate_submission.py"
+    )
     if spec is None or spec.loader is None:
-        raise RuntimeError(f"Cannot load {path}")
+        raise RuntimeError("Cannot load validate_submission.py")
     mod = importlib.util.module_from_spec(spec)
-    # Ensure agent dir (deck.csv) and cg package are importable
-    agent_dir = path.parent
-    cg_parent = _find_cg_parent()
-    sys.path.insert(0, str(agent_dir))
-    if cg_parent:
-        sys.path.insert(0, str(cg_parent))
     spec.loader.exec_module(mod)
-    return mod.agent
+
+    agent_dir = path.resolve().parent
+    cg_parent = _find_cg_parent()
+    # Ensure cg is importable the same way a packaged submission would
+    if cg_parent and str(cg_parent) not in sys.path:
+        sys.path.insert(0, str(cg_parent))
+    return mod.load_agent_like_kaggle(agent_dir)
 
 
 def _find_cg_parent() -> Path | None:

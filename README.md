@@ -59,9 +59,10 @@ agent/                 # what you edit and package
 decks/                 # extra deck lists
 scripts/
   setup_data.py        # kaggle competitions download → data/
-  package.py           # build dist/submission.tar.gz
+  package.py           # build dist/submission.tar.gz (+ validate)
+  validate_submission.py  # Kaggle-style exec smoke test
   self_play.py         # local match via kaggle-environments (needs cg/)
-  submit.py            # kaggle competitions submit dist/submission.tar.gz
+  submit.py            # validate then kaggle competitions submit
 data/                  # competition zip + sample_submission (gitignored)
 ```
 
@@ -83,12 +84,15 @@ Without `~/.kaggle/kaggle.json`, you can manually download **Data** from the com
 
 ```bash
 # edit agent/main.py and/or agent/deck.csv (or --deck decks/...)
-python scripts/package.py
+python scripts/package.py          # builds + Kaggle-style validates
 python scripts/self_play.py --games 5
+python scripts/validate_submission.py   # optional standalone check
 
 # Upload dist/submission.tar.gz (CLI or Kaggle Submit Agent UI)
 python scripts/submit.py -m "random agent + lucario deck"
 ```
+
+`package.py` / `submit.py` load the agent via `exec()` **without** `__file__` (same as Kaggle) so deck-path bugs fail locally instead of on the validation episode.
 
 
 ## Suggested improvement path

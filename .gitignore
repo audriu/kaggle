@@ -11,6 +11,11 @@ dist/
 submission.tar.gz
 *.tar.gz
 
+# Downloaded Kaggle episode logs / replays
+tmp_logs/
+episode-*-logs.json
+episode-*-replay.json
+
 # Python
 __pycache__/
 *.py[cod]

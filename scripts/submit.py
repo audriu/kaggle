@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Submit dist/submission.tar.gz to the Pokémon TCG AI Battle competition.
 
+Validates the archive with a Kaggle-style load (exec without __file__) first.
+
 Requires a Kaggle API token at ~/.kaggle/kaggle.json
 (Create one at https://www.kaggle.com/settings → API).
 
@@ -15,13 +17,26 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS = Path(__file__).resolve().parent
 SUBMISSION = ROOT / "dist" / "submission.tar.gz"
 COMPETITION = "pokemon-tcg-ai-battle"
+
+
+def _load_validate():
+    spec = importlib.util.spec_from_file_location(
+        "validate_submission", SCRIPTS / "validate_submission.py"
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Cannot load validate_submission.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def main() -> int:
@@ -38,6 +53,11 @@ def main() -> int:
         type=Path,
         default=SUBMISSION,
         help=f"Archive to upload (default: {SUBMISSION})",
+    )
+    parser.add_argument(
+        "--no-validate",
+        action="store_true",
+        help="Skip Kaggle-style validation (not recommended)",
     )
     args = parser.parse_args()
 
@@ -62,6 +82,16 @@ def main() -> int:
         )
         return 1
 
+    if not args.no_validate:
+        validate = _load_validate()
+        try:
+            validate.validate_archive(path)
+        except Exception as exc:
+            print(f"VALIDATION FAILED: {exc}", file=sys.stderr)
+            print("Refusing to submit. Fix the agent or pass --no-validate.", file=sys.stderr)
+            return 1
+        print("Validated (Kaggle-style exec + smoke test)")
+
     print(f"Submitting {path} → {COMPETITION}")
     print(f"Message: {args.message}")
     subprocess.run(
@@ -80,7 +110,8 @@ def main() -> int:
         ],
         check=True,
     )
-    print("OK — check status on the competition Submissions tab.")
+    print("OK — check status with: kaggle competitions submissions -c pokemon-tcg-ai-battle")
+    print("Logs: kaggle competitions episodes <submission_id>")
     return 0
 
 

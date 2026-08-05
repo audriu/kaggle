@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Build submission.tar.gz from agent/ + competition cg/ engine."""
+"""Build submission.tar.gz from agent/ + competition cg/ engine.
+
+Runs a Kaggle-style validation (exec without __file__) before finishing.
+"""
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import shutil
 import sys
 import tarfile
@@ -13,6 +17,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 AGENT = ROOT / "agent"
 DIST = ROOT / "dist"
+SCRIPTS = Path(__file__).resolve().parent
+
+
+def _load_validate():
+    spec = importlib.util.spec_from_file_location(
+        "validate_submission", SCRIPTS / "validate_submission.py"
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Cannot load validate_submission.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def find_cg(data_root: Path) -> Path:
@@ -43,6 +59,11 @@ def main() -> int:
         type=Path,
         default=DIST / "submission.tar.gz",
         help="Output archive path",
+    )
+    parser.add_argument(
+        "--no-validate",
+        action="store_true",
+        help="Skip Kaggle-style load smoke test (not recommended)",
     )
     args = parser.parse_args()
 
@@ -82,6 +103,20 @@ def main() -> int:
     if "main.py" not in top or "deck.csv" not in top or "cg" not in top:
         print("ERROR: archive layout invalid", file=sys.stderr)
         return 1
+
+    if not args.no_validate:
+        validate = _load_validate()
+        try:
+            validate.validate_archive(args.out)
+        except Exception as exc:
+            print(f"VALIDATION FAILED: {exc}", file=sys.stderr)
+            print(
+                "Archive written but failed Kaggle-style checks — fix before submit.",
+                file=sys.stderr,
+            )
+            return 1
+        print("Validated (Kaggle-style exec + smoke test)")
+
     return 0
 
 

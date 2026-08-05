@@ -7,18 +7,26 @@ Contract (official cabt engine):
 
 from __future__ import annotations
 
-import os
 import random
 from pathlib import Path
 
 
-def _load_deck() -> list[int]:
-    candidates = [
+def _deck_candidates() -> list[Path]:
+    # Kaggle loads agents via exec(), so __file__ is often undefined — never
+    # evaluate it while building the search list.
+    paths = [
         Path("deck.csv"),
-        Path(__file__).resolve().parent / "deck.csv",
         Path("/kaggle_simulations/agent/deck.csv"),
     ]
-    for path in candidates:
+    try:
+        paths.insert(1, Path(__file__).resolve().parent / "deck.csv")
+    except NameError:
+        pass
+    return paths
+
+
+def _load_deck() -> list[int]:
+    for path in _deck_candidates():
         if path.exists():
             lines = [ln.strip() for ln in path.read_text().splitlines() if ln.strip()]
             deck = [int(x) for x in lines]
