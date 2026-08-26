@@ -12,7 +12,9 @@ Each generation:
   3. elites = top quarter by mean final money; mu/sigma <- elite mean/std (smoothed,
      sigma floored to keep exploring)
   4. league grows with the best theta every `league_every` gens (keeps the population
-     from overfitting to a frozen opponent -- the mirror-vs-starter gap is 35%)
+     from overfitting to a frozen opponent -- the mirror-vs-starter gap is 35%);
+     fixed price-crasher exploiters (train/exploiters.py) ride along by default
+     (--no-exploiters to drop them) so candidates always feel market flooding
   5. checkpoint EVERYTHING (mu, sigma, best, league, RNG, history) atomically
 
 Resume: `--resume` (the default) picks up from the newest valid checkpoint; a fresh
@@ -39,6 +41,7 @@ from agent import policy  # noqa: E402
 from sim.arena import (DEFAULT_PROCS, builtin_spec, evaluate_many, file_spec,  # noqa: E402
                        params_spec, seed_block)
 from train.checkpoint import CheckpointManager, capture_rng, restore_rng  # noqa: E402
+from train.exploiters import get_exploiters  # noqa: E402
 
 BUILDER = "agent.policy:build"
 
@@ -57,8 +60,13 @@ def fresh_state(rng_seed):
     }
 
 
-def opponents_for(state):
+def opponents_for(state, use_exploiters=True):
     opps = [builtin_spec("starter"), file_spec(ROOT / "agent" / "main.py", "baseline")]
+    if use_exploiters:
+        # Fixed price-crasher thetas (train/exploiters.py): pure code, never part of
+        # the checkpoint, so toggling them cannot break resume.
+        for name, theta in get_exploiters():
+            opps.append(params_spec(BUILDER, theta, name))
     for g, theta in state["league"][-2:]:
         opps.append(params_spec(BUILDER, theta, f"league-g{g}"))
     return opps
@@ -78,6 +86,7 @@ def run(args):
     n_dim = len(names)
     elite_n = max(2, args.pop // 4)
     sigma_floor = [s * args.sigma_floor for s in policy.sigmas()]
+    print("opponents: " + ", ".join(o.name for o in opponents_for(state, args.exploiters)))
 
     with Pool(args.procs) as pool:
         while state["gen"] < args.gens:
@@ -95,7 +104,7 @@ def run(args):
             cands = [params_spec(BUILDER, t, f"g{gen}c{i}") for i, t in enumerate(cands_theta)]
 
             # 2. evaluate on this generation's seed block
-            opps = opponents_for(state)
+            opps = opponents_for(state, args.exploiters)
             seeds = seed_block(gen, args.seeds_per)
             reports = evaluate_many(cands, opps, seeds, pool)
             fitness = [r.mean for r in reports]
@@ -171,6 +180,8 @@ def main():
     ap.add_argument("--league-every", type=int, default=5)
     ap.add_argument("--league-max", type=int, default=6)
     ap.add_argument("--rng-seed", type=int, default=12345)
+    ap.add_argument("--exploiters", action=argparse.BooleanOptionalAction, default=True,
+                    help="include fixed price-crasher opponents (train/exploiters.py)")
     ap.add_argument("--fresh", action="store_true", help="ignore existing checkpoints")
     ap.add_argument("--resume", action="store_true", help="(default behaviour)")
     args = ap.parse_args()

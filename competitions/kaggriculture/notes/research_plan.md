@@ -1,6 +1,9 @@
 # Kaggriculture — self-learning agent: research log & development plan
 
-*2026-08-26. Status: training pipeline live; first CEM run in progress.*
+*2026-08-26 (evening). Status: migrated to the CUDA box (RTX 3060 Ti, torch 2.13.0+cu130,
+CUDA verified); all §6 gates passed (difftest 12/12 bit-identical, 15.5×; policy equivalence;
+checkpoint suite 6/6). First trained θ (cem1 gen 38) SUBMITTED to Kaggle. Exploiter league,
+value-net groundwork and run-report tool built + adversarially verified — see §4b/§8.*
 
 Goal: win the Kaggle **Kaggriculture** simulation competition (deadline ~30 Sep 2026) with a
 **self-learning, fully resumable** training system. Original constraints: one dev + AI assistant,
@@ -57,6 +60,12 @@ Only WHEAT and EGG are liquid at volume. Town demand drains inventory and pushes
   strategy engine itself plateaus at ~$6k/season earnings — big headroom for a learner.
 - Opponent sensitivity: vs pass 12809 / vs starter 13382 / vs itself 8385 (−35%, pure price
   competition) ⇒ league self-play is mandatory, mirror-only would overfit.
+  **CORRECTION (2026-08-26, twice independently re-measured on fresh seed blocks):** the
+  mirror number is far worse than first recorded — baseline-vs-itself is **~3.1–3.7k**
+  (3097±342 on seed_block(0,40); 3164±279 on seeds 200000+; 3677±415 on seeds 300000+),
+  and baseline-vs-starter on those same blocks is 8.6–9.7k, not 13k (block-to-block drift
+  is huge; always re-measure references on the candidate's own seeds). Price competition
+  costs the baseline ~2/3 of its income, not 35%.
 - Raising baseline hand target 8→10 collapses it 13035→1416 (cash starvation, not shed
   overflow — measured discards ≈ 0).
 
@@ -83,8 +92,21 @@ competitions/kaggriculture/
   train/checkpoint.py   atomic ckpt (tmp+fsync+rename+manifest, CRC, RNG capture)
   train/test_checkpoint.py  6/6 incl. real kill -9 mid-write
   train/test_policy.py  equivalence test
-  train/cem.py          CEM trainer + league; resumable (verified live)
-  scripts/export_policy.py  best θ → single dist/main.py, Kaggle-style validated
+  train/cem.py          CEM trainer + league; resumable (verified live);
+                        --exploiters/--no-exploiters (default ON) adds fixed exploiters
+  train/exploiters.py   "crasher" price-flood league member (see §4b); make_theta
+                        raises on out-of-bounds/unknown overrides
+  train/test_exploiters.py  bounds/name/50-step sanity
+  sim/features.py       112-dim act-time-legal feature vector from a live obs
+                        (audited vs env source: own private + public opponent only)
+  train/collect.py      parallel npz dataset collector; idempotent, bit-reproducible
+                        shards; snapshot loop proven reward-identical to plain runs
+  train/value_net.py    torch MLP on CUDA; delta-residual head V=money+net(x);
+                        split by episode id; atomic model saves
+  train/test_features.py    finiteness / no-obs-mutation sanity
+  scripts/report_run.py read-only live-run reporter: fitness curve + sparkline,
+                        θ drift in z-units, NEW-param [ON]/[off] verdicts, --json;
+                        race-safe direct manifest reads (strace/audit-hook verified)
 ```
 
 ### Commands
@@ -108,19 +130,42 @@ dir fsync; CRC32 verified on load with fallback to older checkpoints; `keep=5` p
 after commit. Seed blocks derive from gen index, so a resumed run evaluates on exactly the
 seeds it would have used. Survives `kill -9` mid-write (tested with a real SIGKILL).
 
-## 4. First results (run `cem1`, in progress)
+## 4. First results
 
-Baseline (600 eps): mean 10368 ± 238, win 78.2% (vs starter 93.5%, vs self 48.5%).
-CEM gen 0→11: population mean 12k→21k, μ-control ~25k, best-so-far ~29k on mixed league
-opposition. Watch: `feed_res_*`, `goose_target`, `hire_*`, and whether melon/sheep/fertilizer
-params switch on.
+### 4a. Run `cem1` (WSL2 box, then re-run fresh on the CUDA box — no exploiters in league)
+Old box, gen 0→11: population mean 12k→21k, best ~29k. New box (fresh run, 2026-08-26):
+gen 38 best_fitness 31.7k. **Gate eval of exported gen-38 θ** (fresh seeds 400000+, both
+seats, n=100/opponent): **vs baseline 28,051 (96% win); vs crasher 27,501 (94%); vs starter
+33,450 (100%)** — reference baseline on the same seeds: 6,148 mean overall, 4,854 (22%) vs
+crasher. The trained θ is ~4.5× the baseline's income and, untrained against it, already
+crasher-robust. **Submitted 2026-08-26** ("CEM-trained theta (cem1 gen38)"). Optimizer
+direction at gen ~19 (scripts/report_run.py): wheat portfolio up (+3.1z), hiring down,
+cows earlier, land buffer down, premium sell floors up; no NEW capability activated yet
+(melon/straw/sheep/fert day-gates still unreachable); sigma at floor on ~10 params.
+
+### 4b. Exploiter "crasher" (train/exploiters.py; 6 experiment rounds, ~1000 eps)
+Kamikaze floods (14 hires, carrot floods) bankrupt themselves without depressing the
+baseline further. The efficient attack is a season-long **tomato flood** (ongoing crop,
+one $50 seed flowers all season; 60→$3 at 500 sold) + full staple dumping, with income
+parked in flood-proof goods (eggs early, milk early, strawberries mid) and late spending
+throttled. Result (pooled n=200): baseline held to **3,660 (≈ mirror level, −62% vs its
+starter income; ~15% winrate)** while the crasher banks **~8,975**. Independently
+reproduced by a verifier on fresh seeds (3,041±317 / 8,974±527).
+
+### 4c. Value-net groundwork (GPU live)
+112 features, 480 episodes / 28,800 rows collected (idempotent shards). MLP on the
+RTX 3060 Ti (63 s / 300 epochs): val R² 0.384 overall vs −0.02 for predict-mean;
+per-day-bucket R² rises 0.09 (day 0–4, mostly irreducible) → 0.79 (day 25–29).
+Bottleneck is dataset size (best epoch 15 of 300 = memorization); collector extends
+in place at ~7 eps/s. Next: 5–10k episodes + day-conditioned head before wiring into
+rollout truncation.
 
 ## 5. Roadmap
 
 | Week | Deliverable (each ends submittable) | Cut order |
 |---|---|---|
-| 1 (now) | pipeline ✅, first trained θ, submit | — |
-| 2 | overnight runs (100s of gens), exploiter league member (price-crasher), sensitivity report | — |
+| 1 (now) | pipeline ✅, first trained θ ✅, submit ✅ (2026-08-26) | — |
+| 2 | overnight runs ✅ (cem1 300 gens → cem2 300 gens w/ exploiter, auto-chained), exploiter league member ✅ (crasher), sensitivity report ✅ (scripts/report_run.py) | — |
 | 3 | flat fast sim (25–40k steps/s/core) → inference-time rollout search (~8 season rollouts/turn) | cut 2nd |
 | 4 | value-net V(state)→final money on GPU; macro-plan search truncated by V | cut 1st |
 | 5 | freeze, wide-seed robustness eval, final 2 submissions | — |
@@ -156,4 +201,17 @@ Nothing in the pipeline needs a GPU; it makes optional stages (batched sim, valu
 
 5 submissions/day, latest 2 scored. `dist/main.py` is self-contained (policy.py + baked θ);
 `scripts/submit.py` validates before upload. Keep `agent/main.py` (heuristic baseline) as the
-fallback submission at all times.
+fallback submission at all times. Auth on this box is the new-style `~/.kaggle/access_token`
+(kaggle CLI 2.2.4), not kaggle.json.
+
+## 8. Tonight's pipeline & tomorrow's checklist (2026-08-26)
+
+Running unattended: `cem1` (no exploiters, → gen 300) with a chained launcher (waits on the
+cem1 pid) that then starts `cem2` (fresh, crasher in league, → gen 300, `train/runs/cem2.log`)
+and auto-exports its best θ to `dist/main_cem2.py`. Kill the cem1 pid any time to start cem2
+sooner — everything resumes from checkpoints.
+
+Morning: `python scripts/report_run.py train/runs/cem2` (watch which NEW params activated),
+gate-eval cem2's export vs baseline + cem1-g38 + crasher on a fresh seed block (both seats,
+≥50 seeds), submit if it wins; then scale value-net data collection (box idle → full procs)
+toward the week-3/4 rollout-search stage.

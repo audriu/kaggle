@@ -40,3 +40,6 @@ kaggle.json
 
 # Training run checkpoints (heavy pickles; transfer manually to continue a run)
 competitions/*/train/runs/
+
+# Collected episode datasets for value-net training (regenerate with train/collect.py)
+competitions/*/train/data/
