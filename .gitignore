@@ -37,3 +37,6 @@ result.html
 kaggle.json
 .env
 *.pem
+
+# Training run checkpoints (heavy pickles; transfer manually to continue a run)
+competitions/*/train/runs/
