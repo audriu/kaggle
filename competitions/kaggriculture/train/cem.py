@@ -46,13 +46,17 @@ from train.exploiters import get_exploiters  # noqa: E402
 BUILDER = "agent.policy:build"
 
 
-def fresh_state(rng_seed):
+def fresh_state(rng_seed, init_theta=None):
+    """init_theta: start the search there instead of at the policy defaults, with
+    sigma re-widened to the full exploration scale -- the restart move for a run
+    whose sigma collapsed to the floor (exploration stalled) around a good theta."""
     random.seed(rng_seed)
+    theta = list(init_theta) if init_theta is not None else policy.default_theta()
     return {
         "gen": 0,
-        "mu": policy.default_theta(),
+        "mu": list(theta),
         "sigma": policy.sigmas(),
-        "best_theta": policy.default_theta(),
+        "best_theta": list(theta),
         "best_fitness": None,
         "league": [],           # list of (gen, theta) snapshots, newest last
         "history": [],          # per-gen summary dicts
@@ -76,7 +80,15 @@ def run(args):
     cm = CheckpointManager(args.outdir, keep=5)
     step, state = (None, None) if args.fresh else cm.load_latest()
     if state is None:
-        state = fresh_state(args.rng_seed)
+        init_theta = None
+        if args.init_run:
+            _, src = CheckpointManager(args.init_run).load_best()
+            if src is None:
+                sys.exit(f"--init-run: no best checkpoint in {args.init_run}")
+            init_theta = src["best_theta"]
+            print(f"init from {args.init_run} gen {src['gen']} best_theta "
+                  f"(fitness {src['best_fitness']:.0f}), sigma re-widened")
+        state = fresh_state(args.rng_seed, init_theta)
         print(f"fresh run -> {args.outdir}")
     else:
         restore_rng(state["rng"])
@@ -182,6 +194,9 @@ def main():
     ap.add_argument("--rng-seed", type=int, default=12345)
     ap.add_argument("--exploiters", action=argparse.BooleanOptionalAction, default=True,
                     help="include fixed price-crasher opponents (train/exploiters.py)")
+    ap.add_argument("--init-run", default=None,
+                    help="run dir whose best_theta seeds a FRESH run (sigma re-widened); "
+                         "only read when starting fresh, ignored on resume")
     ap.add_argument("--fresh", action="store_true", help="ignore existing checkpoints")
     ap.add_argument("--resume", action="store_true", help="(default behaviour)")
     args = ap.parse_args()
