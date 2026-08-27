@@ -86,6 +86,18 @@ def run(args):
             if src is None:
                 sys.exit(f"--init-run: no best checkpoint in {args.init_run}")
             init_theta = src["best_theta"]
+            # PARAMS is append-only: a shorter theta is from an older schema and pads
+            # with the tail defaults; a longer one means the run is NEWER than this
+            # policy and there is no safe way to drop dimensions.
+            n_missing = len(policy.PARAMS) - len(init_theta)
+            if n_missing < 0:
+                sys.exit(f"--init-run: checkpoint theta has {len(init_theta)} params "
+                         f"but the policy only has {len(policy.PARAMS)} -- init run is "
+                         f"newer than agent/policy.py")
+            if n_missing:
+                init_theta = policy.pad_theta(init_theta)
+                print(f"padded {n_missing} new params at defaults: "
+                      + ", ".join(policy.theta_names()[-n_missing:]))
             print(f"init from {args.init_run} gen {src['gen']} best_theta "
                   f"(fitness {src['best_fitness']:.0f}), sigma re-widened")
         state = fresh_state(args.rng_seed, init_theta)

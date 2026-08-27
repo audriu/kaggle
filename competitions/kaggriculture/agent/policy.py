@@ -11,6 +11,14 @@ It also exposes capabilities the baseline never uses -- melon/strawberry plantin
 sheep, fertilizer purchase -- gated behind params whose defaults disable them, so the
 optimiser can discover them without any code change.
 
+theta v2 appends a phase-2 season split (from `phase2_day` the `*_p2_add`/`*_p2_mul`
+modifiers apply -- capital converts at >2x early, so early/late want different
+settings), per-item liquidity caps (only WHEAT/EGG are liquid at volume), scarcity
+holds (town demand drains inventory and pushes premium prices UP), and land/hire
+windows. All neutral at default. PARAMS is append-only: a shorter theta from an
+older schema is padded with the tail defaults (`pad_theta`), so old exports and
+checkpoints keep meaning what they meant.
+
 Self-contained on purpose: scripts/export_policy.py concatenates this file with a
 trained theta to produce the submitted main.py.
 """
@@ -94,6 +102,30 @@ PARAMS = [
     # fertilizer purchase (NEW; baseline never buys)
     ("fert_buy_max",       0.0, 1.0, 0.0, 10.0),
     ("fert_cash",        400.0, 100., 100.0, 2000.0),
+    # ---- theta v2 (append-only tail; every default is behaviour-neutral) ----
+    # phase-2 season split (NEW): from phase2_day the *_p2 modifiers below apply
+    # on top of their base param (see P2_ADD/P2_MUL + _eff)
+    ("phase2_day",        10.0, 3.0, 0.0, 31.0),
+    ("hire_min_p2_add",    0.0, 1.0, -6.0, 6.0),   # NEW: added to hire_min
+    ("feed_res_mult_p2_add", 0.0, 0.5, -3.0, 3.0), # NEW: added to feed_res_mult
+    ("goose_target_p2_add", 0.0, 2.0, -20.0, 20.0),  # NEW: added to goose_target
+    ("cow_target_p2_add",  0.0, 1.5, -20.0, 20.0),   # NEW: added to cow_target
+    ("wheat_base_p2_add",  0.0, 1.0, -8.0, 8.0),   # NEW: added to wheat_base
+    ("carrot_cap_p2_mul",  1.0, 0.4, 0.0, 3.0),    # NEW: multiplies carrot_buy_cap
+    ("tomato_seed_p2_add", 0.0, 1.0, -6.0, 6.0),   # NEW: added to tomato_seed_max
+    ("floor_p2_mul",       1.0, 0.25, 0.0, 3.0),   # NEW: multiplies every premium sell floor
+    # per-item liquidity caps (NEW): sell at most min(sell_cap, this)/turn; 999 = off
+    ("sell_cap_wheat",   999.0, 100., 1.0, 999.0),
+    ("sell_cap_egg",     999.0, 100., 1.0, 999.0),
+    # scarcity holds (NEW): no SELL of the item before this day (town demand pushes
+    # premium prices up as stock drains); 0 = never hold, dump_day overrides
+    ("hold_melon_until",   0.0, 4.0, 0.0, 31.0),
+    ("hold_straw_until",   0.0, 4.0, 0.0, 31.0),
+    ("hold_milk_until",    0.0, 4.0, 0.0, 31.0),
+    ("hold_wool_until",    0.0, 4.0, 0.0, 31.0),
+    # windows (NEW)
+    ("land_stop_day",     31.0, 3.0, 0.0, 31.0),   # no BUY_LAND on/after this day
+    ("hire_hour_max",      8.0, 2.0, 0.0, 23.0),   # baseline: hire only while hour <= 8
 ]
 
 SELL_FLOOR_KEY = {
@@ -101,6 +133,21 @@ SELL_FLOOR_KEY = {
     "EGG": "sell_floor_egg", "FERTILIZER": "sell_floor_fert", "STRAWBERRY": "sell_floor_straw",
     "MELON": "sell_floor_melon", "MILK": "sell_floor_milk", "WOOL": "sell_floor_wool",
 }
+
+# base param -> phase-2 modifier param, applied by _eff() from phase2_day on
+P2_ADD = {
+    "hire_min": "hire_min_p2_add", "feed_res_mult": "feed_res_mult_p2_add",
+    "goose_target": "goose_target_p2_add", "cow_target": "cow_target_p2_add",
+    "wheat_base": "wheat_base_p2_add", "tomato_seed_max": "tomato_seed_p2_add",
+}
+P2_MUL = {
+    "carrot_buy_cap": "carrot_cap_p2_mul", "sell_floor_straw": "floor_p2_mul",
+    "sell_floor_melon": "floor_p2_mul", "sell_floor_milk": "floor_p2_mul",
+    "sell_floor_wool": "floor_p2_mul",
+}
+SELL_ITEM_CAP_KEY = {"WHEAT": "sell_cap_wheat", "EGG": "sell_cap_egg"}
+HOLD_KEY = {"MELON": "hold_melon_until", "STRAWBERRY": "hold_straw_until",
+            "MILK": "hold_milk_until", "WOOL": "hold_wool_until"}
 
 
 def default_theta():
@@ -111,12 +158,31 @@ def theta_names():
     return [p[0] for p in PARAMS]
 
 
+def pad_theta(theta):
+    """Extend a theta from an older, shorter schema with the defaults of the appended
+    tail. PARAMS is append-only, so position i means the same thing in every version."""
+    theta = list(theta)
+    return theta + [p[1] for p in PARAMS[len(theta):]]
+
+
 def clip_theta(theta):
-    return [min(max(v, lo), hi) for v, (_, _, _, lo, hi) in zip(theta, PARAMS)]
+    return [min(max(v, lo), hi) for v, (_, _, _, lo, hi) in zip(pad_theta(theta), PARAMS)]
 
 
 def sigmas():
     return [p[2] for p in PARAMS]
+
+
+def _eff(p, name, day):
+    """Effective value of base param `name` on `day`: from phase2_day its *_p2_add
+    delta / *_p2_mul multiplier applies. Neutral defaults reproduce the base value."""
+    v = p[name]
+    if day >= p["phase2_day"]:
+        if name in P2_ADD:
+            v += p[P2_ADD[name]]
+        if name in P2_MUL:
+            v *= p[P2_MUL[name]]
+    return v
 
 
 def _fib(n):
@@ -367,7 +433,7 @@ def _unit(p, pos, role, farm, private, day, hour, scan, claimed, goals):
     return [move] if move else ["PASS"]
 
 
-def _market(p, obs, farm, private, scan):
+def _market(p, obs, farm, private, scan, goals):
     day = obs.get("day", 0)
     hour = obs.get("hour", 0)
     prices = (obs.get("market") or {}).get("prices") or {}
@@ -378,7 +444,7 @@ def _market(p, obs, farm, private, scan):
 
     # Sell produce (keep wheat reserve for feed).
     animals = scan["n_geese"] + scan["n_cows"] + scan["n_sheep"]
-    wheat_reserve = int(animals * p["feed_res_mult"] + p["feed_res_base"])
+    wheat_reserve = int(animals * _eff(p, "feed_res_mult", day) + p["feed_res_base"])
     sell_cap = int(round(p["sell_cap"]))
     for item, qty in list(shed.items()):
         if qty <= 0 or item in ANIMALS:
@@ -389,20 +455,26 @@ def _market(p, obs, farm, private, scan):
         if sell_qty <= 0:
             continue
         price = prices.get(item, 0)
-        floor = BASE_PRICE.get(item, 0) * p[SELL_FLOOR_KEY.get(item, "sell_floor_fert")]
+        floor = BASE_PRICE.get(item, 0) * _eff(p, SELL_FLOOR_KEY.get(item, "sell_floor_fert"), day)
         if day >= p["dump_day"]:
             orders.append(["SELL", item, sell_qty])
-        elif price >= floor - 1e-9:
-            orders.append(["SELL", item, min(sell_qty, sell_cap)])
+            continue
+        if item in HOLD_KEY and day < p[HOLD_KEY[item]]:
+            continue  # scarcity hold: town demand lifts the price while we wait
+        if price >= floor - 1e-9:
+            cap = sell_cap
+            if item in SELL_ITEM_CAP_KEY:
+                cap = min(cap, int(round(p[SELL_ITEM_CAP_KEY[item]])))
+            orders.append(["SELL", item, min(sell_qty, cap)])
 
     # Hire early each day.
-    if hour <= 8:
+    if hour <= int(round(p["hire_hour_max"])):
         hires = farm.get("hires_today", 0)
         bucket = 0 if day < 10 else (1 if day < 17 else (2 if day < 24 else 3))
         target = int(round(p[("hire_d0", "hire_d1", "hire_d2", "hire_d3")[bucket]]))
         work = (len(scan["water"]) + len(scan["harvest"]) + len(scan["feed"])
                 + max(0, int(len(scan["empty"]) // max(1, round(p["hire_empty_div"])))))
-        target = min(target, max(int(round(p["hire_min"])), work))
+        target = min(target, max(int(round(_eff(p, "hire_min", day))), work))
         while hires < target:
             cost = _fib(hires)
             if money < cost + p["hire_cash_buffer"]:
@@ -411,9 +483,9 @@ def _market(p, obs, farm, private, scan):
             money -= cost
             hires += 1
 
-    # Expand land when crowded.
+    # Expand land when crowded (late reinvestment is dead capital: land_stop_day).
     unlocked = set(farm.get("unlocked_quadrants") or [])
-    if len(scan["empty"]) <= p["land_empty_thresh"]:
+    if len(scan["empty"]) <= p["land_empty_thresh"] and day < p["land_stop_day"]:
         for quad, price in zip(LAND_ORDER, LAND_PRICES):
             if quad in unlocked:
                 continue
@@ -432,7 +504,7 @@ def _market(p, obs, farm, private, scan):
     if (
         day >= p["goose_day"]
         and geese_waiting == 0
-        and geese_total < p["goose_target"]
+        and geese_total < _eff(p, "goose_target", day)
         and money >= p["goose_cash"]
         and scan["n_carrot"] + len(scan["empty"]) >= p["goose_min_tiles"]
     ):
@@ -442,7 +514,7 @@ def _market(p, obs, farm, private, scan):
     if (
         day >= p["cow_day"]
         and cows_waiting == 0
-        and cows_total < p["cow_target"]
+        and cows_total < _eff(p, "cow_target", day)
         and geese_total >= p["cow_req_geese"]
         and scan["n_geese"] >= p["cow_req_geese"] - 1
         and money >= p["cow_cash"]
@@ -458,21 +530,20 @@ def _market(p, obs, farm, private, scan):
         orders.append(["BUY_ANIMAL", "SHEEP", 1])
         money -= 500
 
-    # Seeds for empty land.
-    wheat_target = max(p["wheat_base"], animals * p["wheat_per_animal"] + p["wheat_plus"])
-    need_wheat = max(0, int(round(wheat_target)) - scan["n_wheat"] - seeds.get("WHEAT", 0))
+    # Seeds for empty land (wheat_target shared with _unit planting via goals).
+    need_wheat = max(0, int(round(goals["wheat_target"])) - scan["n_wheat"] - seeds.get("WHEAT", 0))
     need_carrot = max(0, len(scan["empty"]) - need_wheat - seeds.get("CARROT", 0))
     for _ in range(min(need_wheat, int(round(p["wheat_buy_cap"])))):
         if money < 40:
             break
         orders.append(["BUY_SEED", "WHEAT", 1])
         money -= 10
-    for _ in range(min(need_carrot, int(round(p["carrot_buy_cap"])))):
+    for _ in range(min(need_carrot, int(round(_eff(p, "carrot_buy_cap", day))))):
         if money < 50:
             break
         orders.append(["BUY_SEED", "CARROT", 1])
         money -= 20
-    if day >= p["tomato_day"] and seeds.get("TOMATO", 0) < p["tomato_seed_max"] and money >= 200 and len(scan["empty"]) > 4:
+    if day >= p["tomato_day"] and seeds.get("TOMATO", 0) < _eff(p, "tomato_seed_max", day) and money >= 200 and len(scan["empty"]) > 4:
         orders.append(["BUY_SEED", "TOMATO", 1])
         money -= 50
     if day >= p["melon_day"] and seeds.get("MELON", 0) < p["melon_seed_max"] and money >= 300 and len(scan["empty"]) > 2:
@@ -511,12 +582,13 @@ def build(theta):
         scan = _scan(farm, day)
         animals = scan["n_geese"] + scan["n_cows"] + scan["n_sheep"]
         goals = {
-            "wheat_target": max(p["wheat_base"], animals * p["wheat_per_animal"] + p["wheat_plus"]),
+            "wheat_target": max(_eff(p, "wheat_base", day),
+                                animals * p["wheat_per_animal"] + p["wheat_plus"]),
             "need_feed_wheat": len(scan["feed"]) > 0,
             "allow_build": True,
         }
 
-        market = _market(p, obs, farm, private, scan)
+        market = _market(p, obs, farm, private, scan, goals)
         claimed = set()
         farmer = _unit(p, tuple(farm["farmer"]), 0, farm, private, day, hour, scan, claimed, goals)
         hands = [

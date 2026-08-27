@@ -35,6 +35,17 @@ def main():
     differs = FastEnv(3).run([policy.build(t), starter]) != FastEnv(3).run([para, starter])
     print(f"[{'OK ' if differs else 'FAIL'}] perturbed theta changes behaviour")
     fails += not differs
+    # theta v2: a perturbed appended param changes behaviour, and a short pre-v2
+    # theta pads to the exact default behaviour (full wiring in train/test_theta_v2.py).
+    t = policy.default_theta()
+    t[policy.theta_names().index("sell_cap_egg")] = 1.0
+    v2_differs = FastEnv(3).run([policy.build(t), starter]) != FastEnv(3).run([para, starter])
+    print(f"[{'OK ' if v2_differs else 'FAIL'}] perturbed v2 tail param changes behaviour")
+    fails += not v2_differs
+    short = policy.build(policy.default_theta()[:47])  # 47 = pre-v2 schema length
+    short_same = FastEnv(3).run([short, starter]) == FastEnv(3).run([para, starter])
+    print(f"[{'OK ' if short_same else 'FAIL'}] short 47-dim theta pads to default behaviour")
+    fails += not short_same
     print(f"\n{'PASS' if fails == 0 else f'{fails} FAILURES'}")
     return 1 if fails else 0
 
