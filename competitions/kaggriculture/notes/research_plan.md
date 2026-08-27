@@ -225,7 +225,15 @@ Next (in flight / queued):
   `train/data_cem2/` (6k episodes; strong-play states, since the net will truncate
   rollouts of the TRAINED agent) — then retrain train/value_net.py, expect the
   memorization bottleneck (best epoch 15/300 on 480 eps) to lift.
-- week-3 stage: inference-time rollout search truncated by V(state); needs the flat
-  fast sim OR the value net to be good enough that shallow rollouts suffice.
-- cem3 candidates: wider sigma restart from cem2 μ (sigma floor was pinning ~30 params),
-  a second exploiter targeting melons/eggs (cem2's new income), longer league memory.
+- week-3 stage: inference-time rollout search truncated by V(state). **Feasibility
+  MEASURED (2026-08-27, on the fully loaded box — pessimistic):** value net ported to
+  pure numpy (parity vs torch within $0.001; 80 µs/eval; no torch needed on Kaggle),
+  deepcopy(FastEnv)+rollout from day 15: 2-day 26.6 ms / 3-day 36.3 ms / 5-day 59.8 ms
+  ⇒ **~20–30 (rollout+V) evals per 0.8 s turn budget** — enough for a macro-action
+  branch search. Open problems for the real agent: reconstructing a rollout state from
+  the agent-visible obs (opponent private shed/seeds hidden — model opponent as
+  starter/heuristic), and validating the 60 s overage budget across 720 turns.
+- cem3 IN FLIGHT: wider-sigma restart from cem2 best (`--init-run`), 400 gens,
+  crasher league, auto-export to dist/main_cem3.py.
+- later: a second exploiter targeting melons/eggs (cem2's new income), longer league
+  memory, day-conditioned value-net head (day-29 MAE 872 vs 567 floor).
