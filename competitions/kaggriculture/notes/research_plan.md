@@ -204,14 +204,28 @@ Nothing in the pipeline needs a GPU; it makes optional stages (batched sim, valu
 fallback submission at all times. Auth on this box is the new-style `~/.kaggle/access_token`
 (kaggle CLI 2.2.4), not kaggle.json.
 
-## 8. Tonight's pipeline & tomorrow's checklist (2026-08-26)
+## 8. Overnight results (2026-08-26 → 27) & current state
 
-Running unattended: `cem1` (no exploiters, → gen 300) with a chained launcher (waits on the
-cem1 pid) that then starts `cem2` (fresh, crasher in league, → gen 300, `train/runs/cem2.log`)
-and auto-exports its best θ to `dist/main_cem2.py`. Kill the cem1 pid any time to start cem2
-sooner — everything resumes from checkpoints.
+The chained pipeline ran clean. **cem1** (no exploiters) finished gen 300 at best 42.6k.
+**cem2** (crasher in league) finished gen 300 at best_fitness 42.2k *on the harder league*;
+gate eval on fresh seeds 500000+ (both seats, n=100/opp): **vs cem1-g38 44,580 (91% win);
+vs baseline 45,461 (100%); vs starter 45,202 (100%); vs crasher 43,367 (100%)** — cem1-g38
+reference mean on the same seeds was 31.3k. **Submitted 2026-08-27** ("cem2 g300").
+Leaderboard after ~6 h of the first submission: public 462.9 (old heuristic: 300.7),
+rank 5799 → 4933 and climbing.
 
-Morning: `python scripts/report_run.py train/runs/cem2` (watch which NEW params activated),
-gate-eval cem2's export vs baseline + cem1-g38 + crasher on a fresh seed block (both seats,
-≥50 seeds), submit if it wins; then scale value-net data collection (box idle → full procs)
-toward the week-3/4 rollout-search stage.
+What cem2 learned beyond cem1 (scripts/report_run.py): **melons ACTIVATED** (first NEW
+capability: melon_day 31→28.3, melon_seed_max 0→2.2), cows radically earlier (day 14→4.6,
+−3.1z), fewer geese (target 6→1.5), higher feed reserves, and sell floors raised across the
+board — a scarcity-respecting posture learned from facing the crasher. Still off: sheep,
+strawberries (seed_max drifted +2.9z but the day gate never crossed), fertilizer.
+
+Next (in flight / queued):
+- value-net dataset at scale: `train/collect.py --center-run train/runs/cem2` →
+  `train/data_cem2/` (6k episodes; strong-play states, since the net will truncate
+  rollouts of the TRAINED agent) — then retrain train/value_net.py, expect the
+  memorization bottleneck (best epoch 15/300 on 480 eps) to lift.
+- week-3 stage: inference-time rollout search truncated by V(state); needs the flat
+  fast sim OR the value net to be good enough that shallow rollouts suffice.
+- cem3 candidates: wider sigma restart from cem2 μ (sigma floor was pinning ~30 params),
+  a second exploiter targeting melons/eggs (cem2's new income), longer league memory.

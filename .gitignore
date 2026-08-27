@@ -42,4 +42,4 @@ kaggle.json
 competitions/*/train/runs/
 
 # Collected episode datasets for value-net training (regenerate with train/collect.py)
-competitions/*/train/data/
+competitions/*/train/data*/

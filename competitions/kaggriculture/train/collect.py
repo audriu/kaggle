@@ -56,6 +56,17 @@ STARTER = builtin_spec("starter")
 # seat mix: (cumulative probability, kind)
 MIX = [(0.30, "baseline"), (0.50, "starter"), (1.00, "theta")]
 
+# Center of the "theta" perturbation draws. Default: the untrained policy. Set via
+# --center-run to a trained best_theta so the dataset covers STRONG play -- the value
+# net truncates rollouts of the trained agent, so it must see the states that agent
+# actually reaches. Module-level so fork()ed Pool workers inherit it; keep datasets
+# from different centers in different --out dirs (shards do not record the center).
+CENTER = None
+
+
+def _theta_center():
+    return list(CENTER) if CENTER is not None else policy.default_theta()
+
 
 def matchup(seed):
     """Two seat descriptors, derived deterministically from the episode seed.
@@ -72,7 +83,7 @@ def matchup(seed):
         if kind == "theta":
             theta = policy.clip_theta([
                 rng.gauss(m, s)
-                for m, s in zip(policy.default_theta(), policy.sigmas())
+                for m, s in zip(_theta_center(), policy.sigmas())
             ])
             out.append(tuple(theta))
         else:
@@ -159,7 +170,19 @@ def main():
     ap.add_argument("--seed0", type=int, default=1_000_000,
                     help="first episode seed; away from arena/CEM seed blocks (100k+)")
     ap.add_argument("--out", default=str(ROOT / "train" / "data"))
+    ap.add_argument("--center-run", default=None,
+                    help="run dir whose best_theta centers the theta perturbations "
+                         "(use a dedicated --out; shards do not record the center)")
     args = ap.parse_args()
+
+    if args.center_run:
+        from train.checkpoint import CheckpointManager
+        _, state = CheckpointManager(args.center_run).load_best()
+        if state is None:
+            sys.exit(f"no best checkpoint in {args.center_run}")
+        global CENTER
+        CENTER = list(state["best_theta"])
+        print(f"theta draws centered on {args.center_run} gen {state['gen']} best_theta")
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
