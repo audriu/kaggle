@@ -237,3 +237,30 @@ Next (in flight / queued):
   crasher league, auto-export to dist/main_cem3.py.
 - later: a second exploiter targeting melons/eggs (cem2's new income), longer league
   memory, day-conditioned value-net head (day-29 MAE 872 vs 567 floor).
+
+## 9. Rollout search v1: infrastructure verified, decision quality NOT yet (2026-08-27)
+
+Built + adversarially verified (6-agent build): `agent/reconstruct.py` (obs → forward sim;
+bit-identical continuation given true hidden info; $1–9 mean money divergence over 2–5-day
+rollouts vs starter), `agent/vnet_infer.py` (torch-free numpy value net, parity $0.006,
+~50 µs/eval, base64-embeddable, generated `agent/vnet_weights.py`), `agent/search.py` +
+`scripts/package_search.py` (θ-candidate rollout search wrapping the policy; 16 candidates,
+2-day rollouts, CRN; single-file 552 KB `dist/main_search.py`; full-episode Kaggle-style
+validation: **zero overage consumed**, max turn 0.4 s on the loaded box; poisoned-component
+fallback bit-identical to the plain policy; no state bleed).
+
+**DO NOT SUBMIT `dist/main_search.py` yet.** Two independent seat-swapped A/Bs, same θ both
+arms: implementer −412 ± 807 (seeds 700000+, null), verifier **−2,010 ± 713 (seeds 810000+,
+significantly negative)**. Diagnosed causes, in order:
+1. **Opponent-private blindness is load-bearing**: with the default empty estimate, candidate
+   rank fidelity collapses vs heavy-selling opponents (Spearman ρ 0.087 worst cell in mirror
+   play at K=2d); injecting the true opponent private restores ρ=1.000 in 8/8 cells. Fix:
+   infer opponent shed/flow from observed market inventory deltas (`opponent_private` hook
+   exists for exactly this).
+2. **min_gain $150 vs value-net MAE ~$3.1k** → ~13 noise-driven θ switches/episode that
+   mostly add variance (and measurably lose money). Fix: raise min_gain to O($1–2k) and/or
+   improve the net before trusting small margins.
+3. Value net is the epoch-4 early-stop checkpoint (R² 0.95 late-season but MAE $3.1k
+   overall); day-conditioned head + more data is the known lift.
+Verdict: keep submitting pure-θ exports while search v2 (opponent inference, recalibrated
+gain threshold, better net, A/B vs crasher/mirror on fresh seeds) is developed.
