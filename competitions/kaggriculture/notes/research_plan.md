@@ -264,3 +264,31 @@ significantly negative)**. Diagnosed causes, in order:
    overall); day-conditioned head + more data is the known lift.
 Verdict: keep submitting pure-θ exports while search v2 (opponent inference, recalibrated
 gain threshold, better net, A/B vs crasher/mirror on fresh seeds) is developed.
+
+### Search v2 (2026-08-27): fidelity fixed, still PARKED — measured to the end
+
+Built inline (subagent quota exhausted): `agent/opponent_model.py` (OppTracker) infers the
+opponent's hidden stock from public footprints — tile-diff harvest/feed/fertilize events,
+deterministic town drain (engine SHOPS at the pre-advance step), market-inventory
+attribution with our own net trade derived exactly from our own pool delta (orders can
+partially fail!), floor-price decay. Accuracy $150–155 value-weighted vs $751–986 empty;
+restores mirror rank fidelity ρ=1.000 in 4/4 previously-failing cells (= true-private
+level). Value net v2 (`--day-onehot`, 12k-episode 45%-adversarial dataset): beats v1 on
+every val bucket (overall MAE 3006 vs 3228; day-29 658 vs 967, floor ~567).
+
+**Config sweep (train/ab_search.py, seeds 820000+, paired, both seats, n=96/config):**
+every {min_gain 150/800/2000} × {opp_model starter/self} cell NEGATIVE even vs crasher and
+mirror; best cell mg800_self −1,124 ± 1,241 pooled. Ordering: self-rollouts ≫ starter
+(−1.1k vs −4.9k), higher min_gain → 0 from below ⇒ switches harmful at every threshold.
+**Root cause is now quantified**: real candidate spreads are ~$500–900 (test_reconstruct C)
+while V's mid-season MAE is $2.6–3.1k — the signal is 3–6× below the noise, and CRN cannot
+cancel model bias. PARK stands. It would flip only if: V mid-season MAE < ~$700, or much
+longer horizons (K≥5–10d via a faster sim) grow the real spreads past the noise, or a
+candidate library with $5k-scale strategic swings. The θ-policy + CEM remains the horse.
+
+### cem3 (wider-sigma restart from cem2, 400 gens): best 47.0k, SUBMITTED 2026-08-27
+Gate (seeds 600000+): ≥ cem2 everywhere, +9.0k vs baseline fields, 55/45 head-to-head.
+Strategy shift vs cem2: cows day 2.8 × 7.6 head (geese nearly abandoned, target 0.3),
+feed reserves way up, wheat portfolio +4z, all staple sell floors up ~$0.40, dump day 29.7,
+land at 3 empty tiles. Leaderboard: cem2 scored 506.5 (rank was 4933 and climbing);
+cem3 pending.
