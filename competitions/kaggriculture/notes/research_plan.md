@@ -286,6 +286,16 @@ cancel model bias. PARK stands. It would flip only if: V mid-season MAE < ~$700,
 longer horizons (K≥5–10d via a faster sim) grow the real spreads past the noise, or a
 candidate library with $5k-scale strategic swings. The θ-policy + CEM remains the horse.
 
+### cem4 → θ-v2 → cem5 (2026-08-27 evening)
+cem4 (restart from cem3, 400 gens): fitness 50.2k; gate on seeds 650000+: +3.8k income
+over cem3 on paired seeds (+9.2k vs crasher), 100% win vs every field, 48/52 head-to-head.
+**SUBMITTED**; scored pair now cem4 + cem3. Then **θ-v2 landed** (47→64 dials, exact
+default equivalence proven action-for-action; old θs pad; see commit dda7fdb): phase-2
+schedules, per-item WHEAT/EGG sell caps, melon/straw/milk/wool scarcity holds, land/hire
+windows. **cem5 IN FLIGHT**: 64-dim, seeded from cem4 (padding verified in-log), pop 32,
+500 gens, overnight; auto-export to dist/main_cem5.py. Note: report_run.py refuses
+un-migrated 47-dim run dirs against the new policy (clean error) — expected.
+
 ### cem3 (wider-sigma restart from cem2, 400 gens): best 47.0k, SUBMITTED 2026-08-27
 Gate (seeds 600000+): ≥ cem2 everywhere, +9.0k vs baseline fields, 55/45 head-to-head.
 Strategy shift vs cem2: cows day 2.8 × 7.6 head (geese nearly abandoned, target 0.3),
