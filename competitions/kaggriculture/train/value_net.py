@@ -59,7 +59,7 @@ def load_shards(data_dir):
     files = sorted(glob.glob(str(Path(data_dir) / "shard-*.npz")))
     if not files:
         sys.exit(f"no shards under {data_dir}; run train/collect.py first")
-    Xs, ys, ds, es, names = [], [], [], [], None
+    Xs, ys, ds, es, advs, names = [], [], [], [], [], None
     for f in files:
         z = np.load(f)
         n = list(z["feature_names"])
@@ -72,11 +72,16 @@ def load_shards(data_dir):
         ys.append(z["targets"])
         ds.append(z["day"])
         es.append(z["episode"])
+        # adv tag (collect.py --mix v2): 2 crasher, 1 mirror, 0 quiet; -1 = shard
+        # predates the tag.
+        advs.append(z["adv"] if "adv" in z.files
+                    else np.full(len(z["targets"]), -1, dtype=np.int8))
     X = np.concatenate(Xs).astype(np.float32)
     y = np.concatenate(ys).astype(np.float32)
     day = np.concatenate(ds).astype(np.int64)
     ep = np.concatenate(es).astype(np.int64)
-    return X, y, day, ep, [str(s) for s in names], len(files)
+    adv = np.concatenate(advs).astype(np.int64)
+    return X, y, day, ep, adv, [str(s) for s in names], len(files)
 
 
 def split_by_episode(ep, val_frac, seed):
@@ -149,6 +154,13 @@ def main():
     ap.add_argument("--hidden", type=int, default=256)
     ap.add_argument("--val-frac", type=float, default=0.2)
     ap.add_argument("--split-seed", type=int, default=0)
+    ap.add_argument("--day-onehot", action="store_true",
+                    help="append a one-hot(30) day encoding to the inputs; a single "
+                         "global net otherwise trades late-day precision against "
+                         "global fit (v1: day-29 MAE 872 vs the ~567 copy floor)")
+    ap.add_argument("--compare", default=None,
+                    help="path to another best.pt to evaluate on THIS val split "
+                         "(the honest upgrade metric, e.g. runs/vnet_cem2/best.pt)")
     ap.add_argument("--fresh", action="store_true", help="ignore an existing last.pt")
     args = ap.parse_args()
 
@@ -156,12 +168,19 @@ def main():
     outdir.mkdir(parents=True, exist_ok=True)
     torch.manual_seed(0)
 
-    X, y, day, ep, names, n_shards = load_shards(args.data)
+    X, y, day, ep, adv, names, n_shards = load_shards(args.data)
+    if args.day_onehot:
+        oh = np.zeros((len(X), 30), dtype=np.float32)
+        oh[np.arange(len(X)), np.clip(day, 0, 29)] = 1.0
+        X = np.concatenate([X, oh], axis=1)
+        names = names + [f"day_oh_{d:02d}" for d in range(30)]
     val_mask, n_train_ep, n_val_ep = split_by_episode(ep, args.val_frac, args.split_seed)
     tr, va = ~val_mask, val_mask
+    n_adv = int((adv > 0).sum())
     print(f"data: {X.shape[0]} rows x {X.shape[1]} feats from {n_shards} shards; "
           f"split by episode: {n_train_ep} train / {n_val_ep} val episodes "
-          f"({tr.sum()} / {va.sum()} rows)")
+          f"({tr.sum()} / {va.sum()} rows); adversarial-market rows: {n_adv} "
+          f"({n_adv / len(X):.0%})")
 
     # train-split standardisation (both sides), metrics in dollars
     money = X[:, names.index("money")].astype(np.float32)
@@ -233,6 +252,7 @@ def main():
                 "hidden": args.hidden, "epoch": epoch, "target": "delta",
                 "x_mean": x_mean, "x_std": x_std, "d_mean": d_mean, "d_std": d_std,
                 "y_mean": y_mean, "feature_names": names, "val_mae": va_mae,
+                "day_onehot": bool(args.day_onehot),
             }, best_path)
         if epoch % 10 == 0 or epoch == args.epochs - 1:
             print(f"epoch {epoch:4d}  train_mse={total / n:.4f}  "
@@ -254,6 +274,31 @@ def main():
     for r in bucket_metrics(yva_np, pred, base, day[va]):
         print(f"  {r['bucket']:<10s} {r['n']:5d}  {r['net_mae']:8.0f} {r['net_r2']:7.3f}  "
               f"{r['base_mae']:8.0f} {r['base_r2']:7.3f}")
+
+    adv_va = adv[va]
+    if (adv_va >= 0).any():
+        for label, m in (("adversarial (crasher/mirror)", adv_va > 0),
+                         ("quiet market", adv_va == 0)):
+            if not m.any():
+                continue
+            mae, r2 = _mae_r2(yva_np[m], pred[m])
+            print(f"  {label:<28s} n={int(m.sum()):6d}  MAE {mae:6.0f}  R2 {r2:6.3f}")
+
+    if args.compare:
+        ck1 = torch.load(args.compare, map_location=device, weights_only=False)
+        net1 = ValueNet(ck1["d_in"], ck1["hidden"]).to(device)
+        net1.load_state_dict(ck1["model_state"])
+        net1.eval()
+        names1 = [str(s) for s in ck1["feature_names"]]
+        d1 = ck1["d_in"]
+        assert names[:d1] == names1, "--compare net's features are not a prefix of ours"
+        Xva1 = to_dev((X[va][:, :d1] - ck1["x_mean"]) / ck1["x_std"])
+        with torch.no_grad():
+            pred1 = money_va + (net1(Xva1).cpu().numpy() * ck1["d_std"] + ck1["d_mean"])
+        print(f"\n--compare {args.compare} on THIS val split:")
+        for r in bucket_metrics(yva_np, pred1, base, day[va]):
+            print(f"  {r['bucket']:<10s} {r['n']:5d}  {r['net_mae']:8.0f} {r['net_r2']:7.3f}")
+
     print(f"\nbest model + scaler + feature names -> {best_path}")
 
 

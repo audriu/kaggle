@@ -90,6 +90,7 @@ if "make_sim" not in globals():
     from agent.policy import build, clip_theta, theta_names  # noqa: E402,F401
     from agent.reconstruct import make_sim  # noqa: E402,F401
     from agent.vnet_infer import ValueFn  # noqa: E402,F401
+    from agent.opponent_model import OppTracker  # noqa: E402,F401
     from sim.features import extract  # noqa: E402,F401
 
 
@@ -144,6 +145,10 @@ DEFAULT_CFG = {
     "overrun_factor": 2.0,  # elapsed > budget*this counts as a failure
     "rng_salt": 977,        # rng_seed = salt + day: fixed WITHIN a turn (common
                             # random numbers across candidates), varies across days
+    "opp_model": "starter", # rollout opponent: "starter" (v1) or "self" (the base
+                            # theta -- meaningful now that OppTracker supplies the
+                            # opponent's stock; a stocked mirror seller reproduces
+                            # real market pressure inside the rollout)
 }
 
 _HIRE_BUCKET_PARAMS = ("hire_d0", "hire_d1", "hire_d2", "hire_d3")
@@ -204,8 +209,22 @@ def build_search_agent(theta, value_fn, cfg=None):
     cfg = _merge_cfg(cfg)
     base_theta = clip_theta(list(theta))
     name_idx = {n: i for i, n in enumerate(theta_names())}
-    score_fn = value_fn.v if hasattr(value_fn, "v") else value_fn
+    raw_score = value_fn.v if hasattr(value_fn, "v") else value_fn
+    # A day-conditioned net (value_net.py --day-onehot) declares day_oh_* names;
+    # append the one-hot here so the same search code drives either net.
+    _vf_names = [str(n) for n in getattr(value_fn, "feature_names", []) or []]
+    _n_day = sum(1 for n in _vf_names if n.startswith("day_oh_"))
+
+    def score_fn(sim_obs):
+        row = extract(sim_obs)
+        if _n_day:
+            oh = [0.0] * _n_day
+            oh[min(max(int(sim_obs.get("day", 0) or 0), 0), _n_day - 1)] = 1.0
+            row = list(row) + oh
+        return float(raw_score(row))
+
     starter = K.agents["starter"]
+    opp_fn = build(base_theta) if cfg["opp_model"] == "self" else starter
     n_steps = int(cfg["k_days"]) * 24
 
     st = {}
@@ -215,6 +234,7 @@ def build_search_agent(theta, value_fn, cfg=None):
             last_step=-1,          # detects the next episode: step goes backwards
             acting_theta=list(base_theta),
             acting_agent=build(base_theta),
+            tracker=OppTracker(),  # opponent-stock estimate, fed every turn
             failures=0,
             disabled=False,
             searches=0,
@@ -231,7 +251,10 @@ def build_search_agent(theta, value_fn, cfg=None):
         budget = float(cfg["turn_budget_s"])
         # ONE reconstruction per turn; candidates deepcopy it. Fixed rng_seed =
         # common random numbers: every candidate faces the same imagined weeds.
-        base_sim = make_sim(obs, rng_seed=int(cfg["rng_salt"]) + day)
+        # The tracker's stock estimate makes the imagined opponent actually SELL
+        # in the rollout (rank fidelity 1.000 vs 0.75 empty -- test_opponent_model B).
+        base_sim = make_sim(obs, opponent_private=st["tracker"].estimate(),
+                            rng_seed=int(cfg["rng_salt"]) + day)
         acting = st["acting_theta"]
         scored, times = [], []
         for name, ops in CANDIDATES:
@@ -248,9 +271,9 @@ def build_search_agent(theta, value_fn, cfg=None):
             sim = copy.deepcopy(base_sim)
             pair = [None, None]
             pair[me] = build(cand)
-            pair[1 - me] = starter
+            pair[1 - me] = opp_fn
             sim.run_steps(pair, n_steps)
-            v = float(score_fn(extract(sim.observation(me))))
+            v = score_fn(sim.observation(me))
             times.append(time.perf_counter() - t1)
             scored.append((name, cand, v))
         elapsed = time.perf_counter() - t0
@@ -282,6 +305,7 @@ def build_search_agent(theta, value_fn, cfg=None):
             if step < st["last_step"]:
                 _reset()               # new episode on a reused closure
             st["last_step"] = step
+            st["tracker"].update(obs)  # internally guarded; never raises
             base_action = st["acting_agent"](obs)
         except Exception:
             return dict(_PASS_ACTION)  # even the base policy failed: stay legal

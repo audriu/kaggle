@@ -92,12 +92,14 @@ def assemble(theta, provenance):
     src_vnet = (ROOT / "agent" / "vnet_infer.py").read_text()
     src_weights = (ROOT / "agent" / "vnet_weights.py").read_text()
     src_recon = (ROOT / "agent" / "reconstruct.py").read_text()
+    src_opp = (ROOT / "agent" / "opponent_model.py").read_text()
     src_search = (ROOT / "agent" / "search.py").read_text()
 
     imports, bodies = [], {}
     for name, src in [("agent/policy.py", src_policy),
                       ("agent/vnet_infer.py", src_vnet),
                       ("agent/reconstruct.py", src_recon),
+                      ("agent/opponent_model.py", src_opp),
                       ("agent/search.py", src_search)]:
         imp, body = split_imports(src)
         imports.extend(imp)
@@ -138,6 +140,7 @@ def assemble(theta, provenance):
         + section("agent/vnet_infer.py", bodies["agent/vnet_infer.py"])
         + section("agent/vnet_weights.py", src_weights)
         + section("agent/reconstruct.py", bodies["agent/reconstruct.py"])
+        + section("agent/opponent_model.py", bodies["agent/opponent_model.py"])
         + section("agent/search.py", bodies["agent/search.py"])
         + section("baked theta + entrypoint", tail)
     )
