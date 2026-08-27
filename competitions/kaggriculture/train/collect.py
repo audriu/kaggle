@@ -14,6 +14,22 @@ gauss(default_theta, sigmas) and clipped to the policy bounds -- the same
 distribution CEM generation 0 explores, so the net trains on exactly the states the
 optimiser visits. Deriving everything from the seed makes shards bit-reproducible.
 
+--mix v2 (default v1 == the historical behaviour above, kept bit-identical so old
+datasets stay reproducible): the search-v1 post-mortem (plan section 9) found the
+value net had never seen a crasher-pressured or mirror market -- exactly the states
+where candidate ranking collapsed (Spearman rho 0.087 worst cell). v2 draws an
+episode-level matchup kind first: 18% CRASHER (train.exploiters crasher theta in a
+random seat, the other seat a legacy v1 draw), 8% designed MIRROR (theta vs theta),
+74% legacy per-seat v1 draws. With the legacy arm's incidental 25% theta-theta
+pairs that lands ~44% adversarial-market episodes (measured 44.7% over the 12,000
+seeds of train/data_v2). Every episode is tagged with an int8 `adv` flag stored
+per row in the shard (2 = crasher present, 1 = theta-vs-theta mirror, 0 = quiet)
+so the trainer can report adversarial-vs-quiet metrics; shards written before this
+field simply lack the array and load as adv=-1 (unknown). NOTE: "mirror is
+adversarial" assumes a trained --center-run (a cem2-center theta is a heavy
+seller); with the default untrained center the tag still marks matchup shape but
+the market pressure is mild.
+
 Sharding: episodes are grouped into chunks of CHUNK=8 consecutive seeds; each worker
 plays one chunk and writes one compressed npz shard named by its inclusive seed
 range (shard-<lo>-<hi>.npz: features float32 [N,D], targets float32 [N], day int16,
@@ -47,6 +63,7 @@ from agent import policy  # noqa: E402
 from sim import features  # noqa: E402
 from sim.arena import build, builtin_spec, file_spec  # noqa: E402
 from sim.fastenv import FastEnv  # noqa: E402
+from train.exploiters import get_exploiters  # noqa: E402
 
 CHUNK = 8  # episodes per shard; 8 eps * 60 rows = 480 rows/shard
 
@@ -55,6 +72,19 @@ STARTER = builtin_spec("starter")
 
 # seat mix: (cumulative probability, kind)
 MIX = [(0.30, "baseline"), (0.50, "starter"), (1.00, "theta")]
+
+# --mix v2 episode-level matchup kinds: (cumulative probability, kind).
+# 0.18 crasher + 0.08 designed mirror + 0.74 * 0.25 incidental legacy
+# theta-theta ~= 44% adversarial episodes (the section-9 gap being filled).
+MIX_V2 = [(0.18, "crasher"), (0.26, "mirror"), (1.00, "legacy")]
+
+# The league crasher (train/exploiters.py): season-long tomato flood + staple
+# dumping; holds the baseline to ~3.2-3.7k. Same theta the CEM league trains
+# against, so the net prices exactly the flooded markets search will meet.
+CRASHER_THETA = tuple(dict(get_exploiters())["crasher"])
+
+# Module-level so fork()ed Pool workers inherit it (like CENTER below).
+MIX_MODE = "v1"
 
 # Center of the "theta" perturbation draws. Default: the untrained policy. Set via
 # --center-run to a trained best_theta so the dataset covers STRONG play -- the value
@@ -68,27 +98,66 @@ def _theta_center():
     return list(CENTER) if CENTER is not None else policy.default_theta()
 
 
+def _seat_desc(rng, kind):
+    """Materialise one seat descriptor; consumes rng exactly as v1 did (kind
+    draw already taken by the caller, then gauss() only for theta)."""
+    if kind == "theta":
+        return tuple(policy.clip_theta([
+            rng.gauss(m, s)
+            for m, s in zip(_theta_center(), policy.sigmas())
+        ]))
+    return kind
+
+
 def matchup(seed):
     """Two seat descriptors, derived deterministically from the episode seed.
 
-    A descriptor is "baseline", "starter", or a tuple(theta). Each seat gets its
-    own salted RNG so seat 1's draw does not depend on how many gauss() calls
-    seat 0 consumed.
+    A descriptor is "baseline", "starter", "crasher" (v2 only), or a
+    tuple(theta). Each seat gets its own salted RNG so seat 1's draw does not
+    depend on how many gauss() calls seat 0 consumed. --mix v1 draws are
+    bit-identical to the pre-v2 collector (verified array-equal against a
+    train/data_cem2 shard).
     """
     out = []
     for side in (0, 1):
         rng = random.Random(f"collect-{seed}-{side}")
         r = rng.random()
-        kind = next(k for p, k in MIX if r < p)
-        if kind == "theta":
-            theta = policy.clip_theta([
-                rng.gauss(m, s)
-                for m, s in zip(_theta_center(), policy.sigmas())
-            ])
-            out.append(tuple(theta))
-        else:
-            out.append(kind)
+        out.append(_seat_desc(rng, next(k for p, k in MIX if r < p)))
     return out
+
+
+def matchup_v2(seed):
+    """--mix v2: episode-level kind first (crasher / mirror / legacy), then the
+    per-seat salted RNGs exactly as v1 for whatever each seat still draws."""
+    ep = random.Random(f"collect2-{seed}")
+    r = ep.random()
+    kind = next(k for p, k in MIX_V2 if r < p)
+    if kind == "legacy":
+        return matchup(seed)
+    out = []
+    crasher_seat = ep.randrange(2) if kind == "crasher" else -1
+    for side in (0, 1):
+        rng = random.Random(f"collect-{seed}-{side}")
+        rr = rng.random()
+        if side == crasher_seat:
+            out.append("crasher")
+        elif kind == "mirror":
+            out.append(_seat_desc(rng, "theta"))
+        else:  # crasher episode, non-crasher seat: legacy v1 draw
+            out.append(_seat_desc(rng, next(k for p, k in MIX if rr < p)))
+    return out
+
+
+def adv_tag(descs):
+    """Market-pressure tag from the realised matchup (stored per row as int8):
+    2 = crasher present, 1 = theta-vs-theta mirror (designed or incidental),
+    0 = quiet. Tags matchup SHAPE; how adversarial a mirror really is depends
+    on the theta center (see module docstring)."""
+    if any(d == "crasher" for d in descs):
+        return 2
+    if all(isinstance(d, tuple) for d in descs):
+        return 1
+    return 0
 
 
 def _agent_fn(desc):
@@ -96,16 +165,20 @@ def _agent_fn(desc):
         return build(BASELINE)   # arena's per-process cache: loaded once per worker
     if desc == "starter":
         return build(STARTER)
+    if desc == "crasher":
+        return policy.build(list(CRASHER_THETA))
     return policy.build(list(desc))
 
 
 def play_episode(seed):
-    """Run one episode, return (rows, days, players, finals).
+    """Run one episode, return (rows, days, players, finals, adv).
 
     rows[k] is the feature vector for `players[k]` at hour 0 of `days[k]`;
-    label it with finals[players[k]] after the episode ends.
+    label it with finals[players[k]] after the episode ends. `adv` is the
+    episode's adv_tag.
     """
-    agents = [_agent_fn(d) for d in matchup(seed)]
+    descs = matchup_v2(seed) if MIX_MODE == "v2" else matchup(seed)
+    agents = [_agent_fn(d) for d in descs]
     env = FastEnv(seed)
     rows, days, players = [], [], []
     for _ in range(env.steps_total - 1):
@@ -119,7 +192,7 @@ def play_episode(seed):
         env.step([fn(env.observation(i)) for i, fn in enumerate(agents)])
         if env.done:
             break
-    return rows, days, players, env.rewards()
+    return rows, days, players, env.rewards(), adv_tag(descs)
 
 
 def shard_path(out_dir, lo, hi):
@@ -134,16 +207,17 @@ def collect_shard(job):
         return {"path": path.name, "rows": 0, "eps": 0, "skipped": True}
 
     t0 = time.time()
-    feats, targets, days, eps = [], [], [], []
+    feats, targets, days, eps, advs = [], [], [], [], []
     for seed in range(lo, hi + 1):
         try:
-            rows, ds, players, finals = play_episode(seed)
+            rows, ds, players, finals, adv = play_episode(seed)
         except Exception as e:
             raise RuntimeError(f"episode seed={seed} failed: {e}") from e
         feats.extend(rows)
         targets.extend(finals[p] for p in players)
         days.extend(ds)
         eps.extend([seed] * len(rows))
+        advs.extend([adv] * len(rows))
 
     # Write via an open handle (savez_compressed would append ".npz" to a bare
     # tmp name), then atomically rename into place.
@@ -155,6 +229,7 @@ def collect_shard(job):
             targets=np.asarray(targets, dtype=np.float32),
             day=np.asarray(days, dtype=np.int16),
             episode=np.asarray(eps, dtype=np.int32),
+            adv=np.asarray(advs, dtype=np.int8),
             feature_names=np.asarray(features.FEATURE_NAMES),
         )
     os.replace(tmp, path)
@@ -173,7 +248,14 @@ def main():
     ap.add_argument("--center-run", default=None,
                     help="run dir whose best_theta centers the theta perturbations "
                          "(use a dedicated --out; shards do not record the center)")
+    ap.add_argument("--mix", choices=["v1", "v2"], default="v1",
+                    help="matchup mix: v1 = historical per-seat draws (bit-"
+                         "reproducible with old datasets); v2 adds 18%% crasher "
+                         "+ 8%% mirror episode kinds (~44%% adversarial markets)")
     args = ap.parse_args()
+
+    global MIX_MODE
+    MIX_MODE = args.mix
 
     if args.center_run:
         from train.checkpoint import CheckpointManager
