@@ -126,6 +126,18 @@ PARAMS = [
     # windows (NEW)
     ("land_stop_day",     31.0, 3.0, 0.0, 31.0),   # no BUY_LAND on/after this day
     ("hire_hour_max",      8.0, 2.0, 0.0, 23.0),   # baseline: hire only while hour <= 8
+    # ---- theta v3 (append-only tail; defaults neutral; notes/meta_report.md §5:
+    # the top-ladder ranch meta needs pacing/feed/shop mechanics v2 cannot express) ----
+    ("sell_cap_milk",    999.0, 100., 1.0, 999.0),  # NEW: per-item pace, min(sell_cap, this)
+    ("sell_cap_wool",    999.0, 100., 1.0, 999.0),  # NEW
+    ("sell_cap_straw",   999.0, 100., 1.0, 999.0),  # NEW
+    ("feed_buy_target",    0.0, 8.0, 0.0, 60.0),    # NEW: top shed wheat up toward this (0=off)
+    ("feed_buy_max_price", 55.0, 8.0, 25.0, 100.0), # NEW: only buy feed wheat at/below this
+    ("feed_stop_day",     31.0, 2.0, 20.0, 31.0),   # NEW: no FEED from this day (endgame savings)
+    ("sheep_per_yarn",     0.0, 1.0, 0.0, 6.0),     # NEW: sheep_target += this per YARN_STORE unlocked
+    ("fert_ongoing",       0.0, 0.5, 0.0, 1.0),     # NEW: >=0.5 allows FERTILIZE on ongoing crops
+    ("hire_ramp_day",     10.0, 2.0, 0.0, 10.0),    # NEW: within days 0-9, hire_d0b applies from here
+    ("hire_d0b",          12.0, 2.0, 0.0, 14.0),    # NEW: hire target for days [hire_ramp_day..9]
 ]
 
 SELL_FLOOR_KEY = {
@@ -145,7 +157,9 @@ P2_MUL = {
     "sell_floor_melon": "floor_p2_mul", "sell_floor_milk": "floor_p2_mul",
     "sell_floor_wool": "floor_p2_mul",
 }
-SELL_ITEM_CAP_KEY = {"WHEAT": "sell_cap_wheat", "EGG": "sell_cap_egg"}
+SELL_ITEM_CAP_KEY = {"WHEAT": "sell_cap_wheat", "EGG": "sell_cap_egg",
+                     "MILK": "sell_cap_milk", "WOOL": "sell_cap_wool",
+                     "STRAWBERRY": "sell_cap_straw"}
 HOLD_KEY = {"MELON": "hold_melon_until", "STRAWBERRY": "hold_straw_until",
             "MILK": "hold_milk_until", "WOOL": "hold_wool_until"}
 
@@ -310,13 +324,16 @@ def _unit(p, pos, role, farm, private, day, hour, scan, claimed, goals):
             if (
                 inv.get("FERTILIZER", 0) > 0
                 and info
-                and not info["ongoing"]
+                # v3 fert_ongoing >= 0.5 lifts the one-time-crops-only gate
+                # (rank-8 fertilizes strawberries ~137x/episode)
+                and (not info["ongoing"] or p["fert_ongoing"] >= 0.5)
                 and tile.get("fertilized_until_day", -1) < day
                 and age >= (info["max_yield_day"] + 1) // 2
             ):
                 return ["FERTILIZE"]
         if tile.get("animal"):
-            if not tile.get("fed_today") and inv.get("WHEAT", 0) > 0:
+            if not tile.get("fed_today") and inv.get("WHEAT", 0) > 0 \
+                    and day < p["feed_stop_day"]:
                 return ["FEED"]
             if tile.get("yield_units", 0) > 0:
                 return ["HARVEST"]
@@ -390,7 +407,7 @@ def _unit(p, pos, role, farm, private, day, hour, scan, claimed, goals):
 
     # Navigate to work.
     priority_lists = [
-        scan["feed"] if inv.get("WHEAT", 0) > 0 else [],
+        scan["feed"] if inv.get("WHEAT", 0) > 0 and day < p["feed_stop_day"] else [],
         scan["harvest"],
         scan["water"],
         scan["care"],
@@ -472,6 +489,10 @@ def _market(p, obs, farm, private, scan, goals):
         hires = farm.get("hires_today", 0)
         bucket = 0 if day < 10 else (1 if day < 17 else (2 if day < 24 else 3))
         target = int(round(p[("hire_d0", "hire_d1", "hire_d2", "hire_d3")[bucket]]))
+        if bucket == 0 and day >= p["hire_ramp_day"]:
+            # v3: the meta runs a skeleton crew days 0-6 then ramps ~day 7;
+            # hire_ramp_day default 10 keeps this branch unreachable (neutral).
+            target = int(round(p["hire_d0b"]))
         work = (len(scan["water"]) + len(scan["harvest"]) + len(scan["feed"])
                 + max(0, int(len(scan["empty"]) // max(1, round(p["hire_empty_div"])))))
         target = min(target, max(int(round(_eff(p, "hire_min", day))), work))
@@ -521,10 +542,16 @@ def _market(p, obs, farm, private, scan, goals):
     ):
         orders.append(["BUY_ANIMAL", "COW", 1])
         money -= 400
+    # v3: wool drain is 12/day per YARN_STORE instance vs 1/day without one, so
+    # sheep economics hinge on the (public) shop draw; sheep_per_yarn=0 is neutral.
+    sheep_target = p["sheep_target"]
+    if p["sheep_per_yarn"] > 0:
+        shops = (obs.get("town") or {}).get("unlocked_shops") or []
+        sheep_target += p["sheep_per_yarn"] * sum(1 for s in shops if s == "YARN_STORE")
     if (
         day >= p["sheep_day"]
         and sheep_waiting == 0
-        and sheep_total < p["sheep_target"]
+        and sheep_total < sheep_target
         and money >= p["sheep_cash"]
     ):
         orders.append(["BUY_ANIMAL", "SHEEP", 1])
@@ -557,6 +584,19 @@ def _market(p, obs, farm, private, scan, goals):
     if p["fert_buy_max"] >= 1 and shed.get("FERTILIZER", 0) < p["fert_buy_max"] and money >= p["fert_cash"]:
         orders.append(["BUY_PRODUCT", "FERTILIZER", 1])
 
+    # Routine feed buying (v3, default off): the meta buys 220-900 wheat/game at
+    # ~$40 as a running warehouse — the shed's 100-cap makes growing alone
+    # insufficient for a 14-animal ranch. Price-guarded so a spiked market
+    # doesn't drain cash.
+    if p["feed_buy_target"] >= 1 and animals > 0 and day < p["feed_stop_day"]:
+        deficit = int(round(p["feed_buy_target"])) - shed.get("WHEAT", 0)
+        price_w = prices.get("WHEAT", 999)
+        if deficit > 0 and price_w <= p["feed_buy_max_price"]:
+            qty = min(deficit, 15, int(money // max(1, price_w)))
+            if qty > 0:
+                orders.append(["BUY_PRODUCT", "WHEAT", qty])
+                money -= qty * price_w
+
     # Emergency feed wheat from market.
     if animals > 0 and shed.get("WHEAT", 0) + seeds.get("WHEAT", 0) + scan["n_wheat"] == 0:
         if money >= 50:
@@ -584,7 +624,7 @@ def build(theta):
         goals = {
             "wheat_target": max(_eff(p, "wheat_base", day),
                                 animals * p["wheat_per_animal"] + p["wheat_plus"]),
-            "need_feed_wheat": len(scan["feed"]) > 0,
+            "need_feed_wheat": len(scan["feed"]) > 0 and day < p["feed_stop_day"],
             "allow_build": True,
         }
 

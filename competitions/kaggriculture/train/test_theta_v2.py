@@ -98,8 +98,10 @@ def check_params_append_only():
     ns = {}
     exec(compile(src, "policy.py@HEAD", "exec"), ns)
     old = ns["PARAMS"]
-    assert len(policy.PARAMS) == N_OLD + N_NEW, (
-        f"PARAMS has {len(policy.PARAMS)} entries, want {N_OLD} + {N_NEW}")
+    # >= because later schema versions (theta v3+) append further; the v2 block
+    # itself must stay byte-stable, checked below.
+    assert len(policy.PARAMS) >= N_OLD + N_NEW, (
+        f"PARAMS has {len(policy.PARAMS)} entries, want >= {N_OLD} + {N_NEW}")
     for i, (new_e, old_e) in enumerate(zip(policy.PARAMS[:N_OLD], old[:N_OLD])):
         assert new_e == old_e, f"pre-v2 PARAMS[{i}] changed: {old_e} -> {new_e}"
     print(f"[OK ] (a) {N_OLD} pre-v2 entries identical to HEAD, {N_NEW} appended")
