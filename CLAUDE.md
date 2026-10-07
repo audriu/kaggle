@@ -4,8 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-A workspace for three Kaggle **agent/simulation** competitions, one folder per competition under
-[competitions/](competitions/). There is no library, no test suite, and no linter config — each
+A workspace for Kaggle competitions, one folder per competition under
+[competitions/](competitions/): three **agent/simulation** tracks plus one **analytics writeup**
+hackathon (NFL Big Data Bowl 2027). There is no library, no test suite, and no linter config — each
 folder is a self-contained "edit the agent, package it, submit it" loop driven by small
 `scripts/*.py` CLIs. Shared deps (`kaggle`, `kaggle-environments`) live at the repo root.
 
@@ -14,6 +15,7 @@ folder is a self-contained "edit the agent, package it, submit it" loop driven b
 | [competitions/kaggriculture/](competitions/kaggriculture/) | single-file farming agent (`main.py`) |
 | [competitions/pokemon-tcg-ai-battle/](competitions/pokemon-tcg-ai-battle/) | agent bundle `submission.tar.gz` (`main.py` + `deck.csv` + `cg/`) |
 | [competitions/pokemon-tcg-ai-battle-challenge-strategy/](competitions/pokemon-tcg-ai-battle-challenge-strategy/) | Kaggle **Writeup** (markdown), not code |
+| [competitions/nfl-big-data-bowl-2027/](competitions/nfl-big-data-bowl-2027/) | Kaggle **Writeup** (≤2000 words, <10 figures) + attached **public Kaggle Notebook** |
 
 The two Pokémon folders are one effort: the Strategy writeup describes the Simulation agent in
 [competitions/pokemon-tcg-ai-battle/agent/main.py](competitions/pokemon-tcg-ai-battle/agent/main.py)
@@ -72,6 +74,21 @@ python scripts/submit.py --open         # packages, prints steps, opens the Writ
 Final Strategy submission happens **in the Kaggle Writeup UI** (one writeup per team, ≤2000
 words); `submit.py --file-submit` is a non-official fallback that is expected to fail.
 
+NFL Big Data Bowl 2027 (`competitions/nfl-big-data-bowl-2027`):
+
+```bash
+pip install -r requirements.txt             # per-competition data-science deps (pandas/polars/sklearn/…)
+python scripts/setup_data.py --parquet      # ~2.2 GiB kaggle download → data/ + data/parquet cache
+python scripts/data_summary.py [--small] [--out notes/data_summary.md]
+python scripts/package_writeup.py           # dist/writeup.md, word + figure count gates
+python scripts/submit.py --open             # prints Writeup UI steps; final submit is in the UI
+```
+
+Analysis code imports `src/bdb` (`paths`, `load`, `tracking`); scripts add `src/` to `sys.path`
+themselves, notebooks do `sys.path.insert(0, "../src")`. Loaders prefer the parquet cache and use
+polars for the 1 GB tracking CSVs. Rubric, column dictionary and plan live in `notes/`
+(`rubric.md`, `data_dictionary.md`, `research_plan.md`); keep `notes/progress_log.md` current.
+
 ## Architecture notes
 
 ### Kaggle-style loading is the critical invariant (PTCG)
@@ -119,6 +136,11 @@ the same tile — pass it along when adding unit logic. The API/rules reference 
 `data/AGENTS.md` + `data/README.md`, copied out of the installed `kaggle_environments` package.
 
 ### Eval before submitting
+
+Big Data Bowl is judged on a rubric (Football 30 / Data Science 30 / Writeup 20 / Viz 20) with no
+leaderboard and one submission per team, so the loop is EDA → metric → outcome model → figures →
+writeup, with `package_writeup.py` as the only gate. Must use Combine *tracking* data and attach a
+public Kaggle notebook or it is not scored.
 
 Simulation allows 5 submissions/day and scores the latest 2, so prefer local evidence:
 `scripts/self_play.py` (kaggle-environments `cabt` env, needs `data/sample_submission/cg`) and

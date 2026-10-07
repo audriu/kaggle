@@ -1,0 +1,13 @@
+# Data-science deps for the Big Data Bowl 2027 writeup (install on top of the repo-root requirements.txt)
+pandas>=2.2
+pyarrow>=16
+polars>=1.0
+numpy>=1.26
+scipy>=1.13
+scikit-learn>=1.5
+statsmodels>=0.14
+matplotlib>=3.9
+seaborn>=0.13
+plotly>=5.22
+jupyterlab>=4.2
+tqdm>=4.66

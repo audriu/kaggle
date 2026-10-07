@@ -2,8 +2,9 @@
 .venv/
 venv/
 
-# Competition data (Kaggle Competition Use only — do not redistribute)
+# Competition data (Kaggle Competition Use only / CC BY-NC — do not redistribute)
 data/
+*.parquet
 !data/.gitkeep
 !**/data/.gitkeep
 
@@ -18,6 +19,7 @@ episode-*-logs.json
 episode-*-replay.json
 
 # Python
+.ipynb_checkpoints/
 __pycache__/
 *.py[cod]
 *.egg-info/
