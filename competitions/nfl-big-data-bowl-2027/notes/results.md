@@ -46,4 +46,4 @@ Share of Combine top speed reached in games (p95): WR 82 % · CB 77 % · TE 77 %
 
 ## Writeup status
 
-`writeup/draft.md` ≈ 1,950 words, 4 figures + 1 table. Notebook executes clean locally (nbconvert). Still to do: publish notebook on Kaggle, fill the two `<link>` placeholders, upload the four PNGs in the Writeup editor, submit (Open track).
+`writeup/draft.md` ≈ 1,950 words, 4 figures + 1 table. Notebook executes clean locally (nbconvert). Submitted 2026-10-07 (Open track); see `progress_log.md` for links.
