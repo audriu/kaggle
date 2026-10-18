@@ -1,0 +1,9 @@
+data/
+dist/
+tmp/
+oof/
+kernels/*/out/
+kernels/*/worker*.log
+kernels/*/worker.py
+kernels/*/extra_used.csv
+kernels/*/submission.parquet

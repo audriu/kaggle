@@ -1,0 +1,32 @@
+{
+ "members": [
+  "debv3l_L24_6",
+  "q8lora_v1",
+  "style_lgb",
+  "stylegram",
+  "q3_8b_L7_22",
+  "q25_7b_L6_20"
+ ],
+ "weights": [
+  0.3117722967201176,
+  0.595664071649113,
+  0.11160803016064459,
+  0.44371264698668844,
+  0.0,
+  0.0
+ ],
+ "temps": {
+  "debv3l_L24_6": 1.0,
+  "q8lora_v1": 1.5,
+  "style_lgb": 1.0,
+  "stylegram": 0.25,
+  "q3_8b_L7_22": 1.0,
+  "q25_7b_L6_20": 1.0
+ },
+ "cv_nested": 0.5052746706437982,
+ "dropped": [
+  "q25_7b_L6_20",
+  "q3_8b_L7_22"
+ ],
+ "note": "q3_8b_L7_22 / q25_7b_L6_20 kept at plain weight 0 so their cluster-centered twins are extracted"
+}

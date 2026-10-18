@@ -16,6 +16,7 @@ folder is a self-contained "edit the agent, package it, submit it" loop driven b
 | [competitions/pokemon-tcg-ai-battle/](competitions/pokemon-tcg-ai-battle/) | agent bundle `submission.tar.gz` (`main.py` + `deck.csv` + `cg/`) |
 | [competitions/pokemon-tcg-ai-battle-challenge-strategy/](competitions/pokemon-tcg-ai-battle-challenge-strategy/) | Kaggle **Writeup** (markdown), not code |
 | [competitions/nfl-big-data-bowl-2027/](competitions/nfl-big-data-bowl-2027/) | Kaggle **Writeup** (≤2000 words, <10 figures) + attached **public Kaggle Notebook** |
+| [competitions/name-that-llm/](competitions/name-that-llm/) | code-competition **script kernel** `kernels/submit/submit.py` (18-way LLM authorship, balanced accuracy); training kernels in `kernels/train_*` run on Kaggle GPUs via `kaggle kernels push` |
 
 The two Pokémon folders are one effort: the Strategy writeup describes the Simulation agent in
 [competitions/pokemon-tcg-ai-battle/agent/main.py](competitions/pokemon-tcg-ai-battle/agent/main.py)
@@ -73,6 +74,8 @@ python scripts/submit.py --open         # packages, prints steps, opens the Writ
 
 Final Strategy submission happens **in the Kaggle Writeup UI** (one writeup per team, ≤2000
 words); `submit.py --file-submit` is a non-official fallback that is expected to fail.
+
+Name That LLM (`competitions/name-that-llm`): see its README; `scripts/cpu_members.py` → `scripts/fit_blend.py` → `scripts/install_blend.py` (writes the weights into `submit.py`; script kernels upload only the code file) → `kaggle kernels push -p kernels/submit` → `kaggle competitions submit -k vienas/ntl-submit -v N -f submission.parquet -m msg`. Prompt-grouped folds (`src/ntl/common.py: folds`) are shared by every member; OOF files live in `oof/`.
 
 NFL Big Data Bowl 2027 (`competitions/nfl-big-data-bowl-2027`):
 

@@ -1,0 +1,28 @@
+{
+  "id": "vienas/ntl-train-lora-x2",
+  "title": "NTL train lora x2",
+  "code_file": "train_lora.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "keywords": [
+    "gpu"
+  ],
+  "dataset_sources": [
+    "prvsiyan/prvsiyans-extended-name-that-llm-dataset",
+    "seyitkaangunes/ntl-extra-api-passages",
+    "dophuchung/ntl-proxy-generations",
+    "prvsiyan/ntl-own-prompt-generations-v1"
+  ],
+  "kernel_sources": [],
+  "competition_sources": [
+    "name-that-llm"
+  ],
+  "model_sources": [
+    "qwen-lm/qwen-3/Transformers/8b-base/1"
+  ],
+  "machine_shape": "NvidiaTeslaT4"
+}

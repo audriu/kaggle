@@ -1,0 +1,15 @@
+{
+ "members": [
+  "stylegram",
+  "style_lgb"
+ ],
+ "weights": [
+  1.213673496041866,
+  0.37190908747268525
+ ],
+ "temps": {
+  "stylegram": 0.25,
+  "style_lgb": 1.0
+ },
+ "cv_nested": 0.38967685806611985
+}
