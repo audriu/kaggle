@@ -1,0 +1,7 @@
+data/*
+!data/.gitkeep
+dist/
+tmp/
+solver/solve
+solver/*.out
+*.csv

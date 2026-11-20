@@ -17,6 +17,7 @@ folder is a self-contained "edit the agent, package it, submit it" loop driven b
 | [competitions/pokemon-tcg-ai-battle-challenge-strategy/](competitions/pokemon-tcg-ai-battle-challenge-strategy/) | Kaggle **Writeup** (markdown), not code |
 | [competitions/nfl-big-data-bowl-2027/](competitions/nfl-big-data-bowl-2027/) | Kaggle **Writeup** (≤2000 words, <10 figures) + attached **public Kaggle Notebook** |
 | [competitions/name-that-llm/](competitions/name-that-llm/) | code-competition **script kernel** `kernels/submit/submit.py` (18-way LLM authorship, balanced accuracy); training kernels in `kernels/train_*` run on Kaggle GPUs via `kaggle kernels push` |
+| [competitions/santa-2026/](competitions/santa-2026/) | combinatorial optimization **CSV** `dist/submission.csv` (`id,program` JSON instruction arrays for 48-register Elf Calculator, 1,000 puzzles, 100% public LB) |
 
 The two Pokémon folders are one effort: the Strategy writeup describes the Simulation agent in
 [competitions/pokemon-tcg-ai-battle/agent/main.py](competitions/pokemon-tcg-ai-battle/agent/main.py)
@@ -31,8 +32,9 @@ pip install -r requirements.txt
 ```
 
 All commands below run from inside the relevant competition folder. Kaggle API calls need
-`~/.kaggle/kaggle.json` (chmod 600) and accepted competition rules; `setup_data.py` / `submit.py`
-print recovery instructions when either is missing.
+`~/.kaggle/access_token` (or `~/.kaggle/kaggle.json`, chmod 600) and accepted competition rules;
+`setup_data.py` / `submit.py` print recovery instructions when either is missing. Note:
+`kaggle==2.2.5` omits `six` from its declared deps, so install `six` alongside `kaggle` in `.venv`.
 
 `data/`, `dist/`, `tmp_logs/` are gitignored. Competition card data and the `cg/` SDK are
 **Competition Use only** — never copy them out of `data/` into tracked paths.
@@ -91,6 +93,21 @@ Analysis code imports `src/bdb` (`paths`, `load`, `tracking`); scripts add `src/
 themselves, notebooks do `sys.path.insert(0, "../src")`. Loaders prefer the parquet cache and use
 polars for the 1 GB tracking CSVs. Rubric, column dictionary and plan live in `notes/`
 (`rubric.md`, `data_dictionary.md`, `research_plan.md`); keep `notes/progress_log.md` current.
+
+Santa 2026 - The Elf Calculator (`competitions/santa-2026`):
+
+```bash
+../../.venv/bin/python scripts/setup_data.py             # download puzzles.csv / practice_puzzles.csv / sample_submission.csv
+g++ -O3 -march=native -fopenmp -std=c++20 solver/solve.cpp -o solver/solve
+./solver/solve data/practice_puzzles.csv dist/practice_out.csv
+./solver/solve data/puzzles.csv dist/submission.csv      # ~1m13s on 16 threads
+python3 scripts/validate.py dist/submission.csv          # exact 48-reg simulator & scorer
+python3 scripts/merge_best.py dist/best.csv dist/a.csv dist/b.csv
+../../.venv/bin/python scripts/submit.py -f dist/submission.csv -m "message"
+```
+
+100% public leaderboard (1,000 puzzles, minimize total instruction count; local exact score == LB).
+Plan and dated log live in `notes/` (`research_plan.md`, `progress_log.md`).
 
 ## Architecture notes
 

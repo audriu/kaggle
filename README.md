@@ -9,6 +9,7 @@ Local workspace for active Kaggle competition tracks.
 | [`competitions/pokemon-tcg-ai-battle-challenge-strategy`](competitions/pokemon-tcg-ai-battle-challenge-strategy/) | [PTCG Strategy](https://www.kaggle.com/competitions/pokemon-tcg-ai-battle-challenge-strategy) | Kaggle Writeup (deck + logic + sim evidence) → Japan finals |
 | [`competitions/name-that-llm`](competitions/name-that-llm/) | [Name That LLM](https://www.kaggle.com/competitions/name-that-llm) | Code-competition notebook (`kernels/submit`) scored by balanced accuracy, deadline 13 Jan 2027 |
 | [`competitions/nfl-big-data-bowl-2027`](competitions/nfl-big-data-bowl-2027/) | [NFL Big Data Bowl 2027](https://www.kaggle.com/competitions/nfl-big-data-bowl-2027) | Kaggle Writeup + public notebook (Combine tracking → NFL performance), deadline 6 Jan 2027 |
+| [`competitions/santa-2026`](competitions/santa-2026/) | [Santa 2026 - The Elf Calculator](https://www.kaggle.com/competitions/santa-2026) | Arithmetic program CSV (`dist/submission.csv`), minimize total instructions across 1,000 puzzles, deadline 28 Jan 2027 |
 
 PTCG Strategy requires Simulation participation. Shared deps live at the repo root.
 
@@ -27,3 +28,4 @@ Then work inside the competition folder you care about (see that folder’s READ
 - **PTCG Strategy** — `cd competitions/pokemon-tcg-ai-battle-challenge-strategy && python scripts/submit.py --open` (final Submit is in the Kaggle Writeup UI)
 - **Name That LLM** — `cd competitions/name-that-llm && python scripts/fit_blend.py && kaggle kernels push -p kernels/submit` then `kaggle competitions submit -k vienas/ntl-submit -v <version> -f submission.parquet -m msg`
 - **NFL Big Data Bowl 2027** — `cd competitions/nfl-big-data-bowl-2027 && pip install -r requirements.txt && python scripts/setup_data.py --parquet` then `python scripts/submit.py --open` (Writeup UI)
+- **Santa 2026** — `cd competitions/santa-2026 && g++ -O3 -march=native -fopenmp -std=c++20 solver/solve.cpp -o solver/solve && ./solver/solve data/puzzles.csv dist/submission.csv && ../../.venv/bin/python scripts/submit.py -f dist/submission.csv -m msg`
